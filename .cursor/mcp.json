@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "ihale-mcp": {
+      "url": "https://ihalemcp.fastmcp.app/mcp"
+    }
+  }
+}
