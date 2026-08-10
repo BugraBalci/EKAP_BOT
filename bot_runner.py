@@ -1,40 +1,92 @@
-import time
-from selenium.webdriver.support.ui import WebDriverWait
+import csv
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 
-from browser_utils import tarayiciyi_baslat
-from ekap_actions import (
-    ogretici_kapat, 
-    okas_kodu_sec, 
-    arama_yap_ve_gosterimi_ayarla
-)
-from data_scraper import verileri_cek, verileri_kaydet
+ROOT = Path(__file__).resolve().parent
+UV = Path.home() / ".local" / "bin" / "uv"
+VENDOR = ROOT / "vendor" / "ihale-mcp"
+SEARCH_SCRIPT = ROOT / "ekap_api_search.py"
+
+
+def verileri_kaydet(veri_listesi, dosya_adi="ekap_arayuz_sonuclar.csv"):
+    if not veri_listesi:
+        print("⚠️ Çekilecek hiçbir geçerli veri bulunamadı.")
+        return
+
+    alanlar = list(veri_listesi[0].keys())
+    with open(dosya_adi, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=alanlar, delimiter=";")
+        writer.writeheader()
+        writer.writerows(veri_listesi)
+    print(f"💾 Veriler '{dosya_adi}' dosyasına kaydedildi.")
+
 
 def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
-    hedef_url = "https://ekapv2.kik.gov.tr/ekap/search"
+    """ihale-mcp EKAPClient ile arar; Selenium kullanmaz."""
     kayit_dosyasi = "ekap_arayuz_sonuclar.csv"
-    
-    driver, wait = tarayiciyi_baslat()
-    
+
+    if not VENDOR.exists():
+        raise RuntimeError(
+            f"vendor/ihale-mcp bulunamadı: {VENDOR}\n"
+            "Şunu çalıştır: git clone --depth 1 https://github.com/saidsurucu/ihale-mcp vendor/ihale-mcp"
+        )
+
+    uv_bin = str(UV if UV.exists() else "uv")
+    cmd = [
+        uv_bin,
+        "run",
+        "--python",
+        "3.12",
+        "--directory",
+        str(VENDOR),
+        "python",
+        str(SEARCH_SCRIPT),
+        "--okas",
+        str(okas).strip(),
+        "--haric",
+        haric_kelime or "",
+        "--limit",
+        str(limit),
+    ]
+
+    print("🔎 EKAP API araması başlıyor (ihale-mcp)...")
+    print(f"   OKAS={okas} | durum filtresi=katılıma/teklif açık | sayfa_limiti={limit}")
+
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(VENDOR) + (
+        f":{env['PYTHONPATH']}" if env.get("PYTHONPATH") else ""
+    )
+
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        cwd=str(VENDOR),
+        env=env,
+    )
+
+    if proc.stderr:
+        sys.stderr.write(proc.stderr)
+        sys.stderr.flush()
+
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"API araması başarısız (exit={proc.returncode}).\n{proc.stderr[-2000:]}"
+        )
+
     try:
-        driver.get(hedef_url)
-        WebDriverWait(driver, 25).until(lambda d: d.execute_script("return document.readyState") == "complete")
-        time.sleep(3)
-        
-        ogretici_kapat(driver, wait)
-        okas_kodu_sec(driver, wait, okas) 
-        
-        print("⏳ EKAP sisteminin OKAS kodunu algılaması bekleniyor...")
-        time.sleep(3)
-        
-        arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50")
-        
-        # Sonuçların tamamen ekrana dökülmesi için güvenli bekleme
-        time.sleep(5)
-        
-        toplanan_veriler = verileri_cek(driver, wait, limit, dislanacak_kelime=haric_kelime)
-        verileri_kaydet(toplanan_veriler, dosya_adi=kayit_dosyasi)
-        
-        return toplanan_veriler, kayit_dosyasi
-        
-    finally:
-        driver.quit()
+        toplanan_veriler = json.loads(proc.stdout or "[]")
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"API çıktısı JSON değil: {e}\nSTDOUT: {proc.stdout[:500]}") from e
+
+    if not isinstance(toplanan_veriler, list):
+        raise RuntimeError("API beklenmeyen sonuç döndürdü.")
+
+    # durum parametresi GUI'den geliyor; API tarafında 'açık' filtresi uygulandı
+    _ = durum
+
+    verileri_kaydet(toplanan_veriler, dosya_adi=kayit_dosyasi)
+    return toplanan_veriler, kayit_dosyasi
