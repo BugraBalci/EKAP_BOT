@@ -1,7 +1,16 @@
 {
   "mcpServers": {
     "ihale-mcp": {
-      "url": "https://ihalemcp.fastmcp.app/mcp"
+      "command": "/home/bugra/.local/bin/uv",
+      "args": [
+        "run",
+        "--python",
+        "3.12",
+        "--directory",
+        "${workspaceFolder}/vendor/ihale-mcp",
+        "python",
+        "ihale_mcp.py"
+      ]
     }
   }
 }
