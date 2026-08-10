@@ -7,7 +7,7 @@ import os
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_URL = "https://msa.entropywork.com/api/send-email"
@@ -119,73 +119,132 @@ def _tablo_satirlari(veriler: List[Dict[str, str]]) -> str:
     return "".join(rows)
 
 
-def ihale_sonuclarini_maile_cevir(
+def _yeni_kutu(
+    baslik: str,
+    aciklama: str,
     veriler: List[Dict[str, str]],
-    okas: str,
-    yeni_bu_hafta: Optional[List[Dict[str, str]]] = None,
-) -> tuple[str, str, str]:
-    yeni_bu_hafta = yeni_bu_hafta or []
+    border: str,
+    bg: str,
+    head: str,
+) -> str:
     n = len(veriler)
-    n_yeni = len(yeni_bu_hafta)
-    subject = f"EKAP İhale Özeti — OKAS {okas} ({n} açık, {n_yeni} bu hafta yeni)"
-
-    lines = [
-        f"OKAS: {okas}",
-        f"Bu hafta yeni çıkan: {n_yeni}",
-        f"Teklif vermeye açık (ihale tarihi ≥ bugün, filtrelenmiş): {n}",
-        "",
-        "=== BU HAFTA YENİ ÇIKAN İHALELER ===",
-    ]
-    if yeni_bu_hafta:
-        for v in yeni_bu_hafta:
-            lines.append(
-                f"- {v.get('İKN', '-')} | {v.get('İşin Adı', '-')} | "
-                f"{v.get('Kurum', '-')} | {v.get('Link', '')}"
-            )
-    else:
-        lines.append("(Bu hafta yeni ilan yok)")
-
-    lines += ["", "=== TÜM TEKLİF VERMEYE AÇIK LİSTE ==="]
-    for v in veriler:
-        lines.append(
-            f"- {v.get('İKN', '-')} | {v.get('İşin Adı', '-')} | "
-            f"{v.get('Kurum', '-')} | {v.get('İhale Tarihi', '-')} | {v.get('Link', '')}"
-        )
-
-    body = "\n".join(lines)
-
-    yeni_box = f"""
-    <div style="border:2px solid #1F6FEB;border-radius:8px;padding:14px 16px;margin:0 0 22px 0;
-                background:#F0F7FF;font-family:Arial,sans-serif">
-      <div style="font-size:16px;font-weight:bold;color:#0B3D91;margin-bottom:8px">
-        🆕 Bu hafta yeni çıkan ihaleler
+    return f"""
+    <div style="border:2px solid {border};border-radius:8px;padding:14px 16px;margin:0 0 18px 0;
+                background:{bg};font-family:Arial,sans-serif">
+      <div style="font-size:16px;font-weight:bold;color:{head};margin-bottom:8px">
+        {baslik}
       </div>
-      <p style="margin:0 0 10px 0;color:#333;font-size:13px">
-        Bu hafta ilanı yayımlanan, teklif vermeye açık kayıtlar ({n_yeni} adet).
-      </p>
+      <p style="margin:0 0 10px 0;color:#333;font-size:13px">{aciklama} ({n} adet).</p>
       <table border="1" cellpadding="6" cellspacing="0"
              style="border-collapse:collapse;width:100%;font-size:13px;background:#fff">
-        <thead style="background:#1F6FEB;color:#fff">
+        <thead style="background:{head};color:#fff">
           <tr>
             <th>İKN</th><th>İşin Adı</th><th>Kurum</th><th>İhale Tarihi</th>
             <th>İl</th><th>Durum</th><th>Link</th>
           </tr>
         </thead>
         <tbody>
-          {_tablo_satirlari(yeni_bu_hafta) if yeni_bu_hafta else '<tr><td colspan="7">Bu hafta yeni ilan yok</td></tr>'}
+          {_tablo_satirlari(veriler) if veriler else '<tr><td colspan="7">Kayıt yok</td></tr>'}
         </tbody>
       </table>
     </div>
     """
 
+
+def build_subject(
+    okas: str,
+    n_acik: int,
+    yeni_bugun: List[Dict[str, str]],
+    yeni_dun: List[Dict[str, str]],
+) -> str:
+    """
+    09:00 sabah maili başlığı:
+      - Bugün ilan çıktıysa → "Bugün yeni bir ihale var"
+      - Dün (09 sonrası / dünün ilanı) → "Önceki gün yeni ihale girildi"
+    """
+    parts: List[str] = []
+    if yeni_bugun:
+        parts.append("Bugün yeni bir ihale var")
+    if yeni_dun:
+        parts.append("Önceki gün yeni ihale girildi")
+    if parts:
+        return " | ".join(parts) + f" — OKAS {okas} ({n_acik} açık)"
+    return f"EKAP İhale Özeti — OKAS {okas} ({n_acik} açık, yeni ihale yok)"
+
+
+def ihale_sonuclarini_maile_cevir(
+    veriler: List[Dict[str, str]],
+    okas: str,
+    yeni_meta: Optional[Union[List[Dict[str, str]], Dict[str, Any]]] = None,
+) -> tuple[str, str, str]:
+    yeni_bugun: List[Dict[str, str]] = []
+    yeni_dun: List[Dict[str, str]] = []
+    yeni_birlesik: List[Dict[str, str]] = []
+
+    if isinstance(yeni_meta, list):
+        yeni_birlesik = yeni_meta
+    elif isinstance(yeni_meta, dict):
+        yeni_bugun = list(yeni_meta.get("yeni_bugun") or [])
+        yeni_dun = list(yeni_meta.get("yeni_dun") or [])
+        yeni_birlesik = list(yeni_meta.get("yeni_bu_hafta") or (yeni_bugun + yeni_dun))
+
+    n = len(veriler)
+    subject = build_subject(okas, n, yeni_bugun, yeni_dun)
+
+    lines = [
+        f"OKAS: {okas}",
+        f"Konu özeti: {subject}",
+        f"Bugün yeni: {len(yeni_bugun)} | Önceki gün yeni: {len(yeni_dun)} | Açık liste: {n}",
+        "",
+        "=== BUGÜN YENİ ÇIKAN İHALELER ===",
+    ]
+    if yeni_bugun:
+        for v in yeni_bugun:
+            lines.append(f"- {v.get('İKN')} | {v.get('İşin Adı')} | {v.get('Link')}")
+    else:
+        lines.append("(Yok)")
+
+    lines += ["", "=== ÖNCEKİ GÜN YENİ GİRİLEN İHALELER ==="]
+    if yeni_dun:
+        for v in yeni_dun:
+            lines.append(f"- {v.get('İKN')} | {v.get('İşin Adı')} | {v.get('Link')}")
+    else:
+        lines.append("(Yok)")
+
+    lines += ["", "=== TÜM TEKLİF VERMEYE AÇIK LİSTE ==="]
+    for v in veriler:
+        lines.append(
+            f"- {v.get('İKN')} | {v.get('İşin Adı')} | {v.get('İhale Tarihi')} | {v.get('Link')}"
+        )
+
+    body = "\n".join(lines)
+
+    kutular = ""
+    kutular += _yeni_kutu(
+        "🆕 Bugün yeni bir ihale var",
+        "Bugün ilanı yayımlanan, teklif vermeye açık kayıtlar",
+        yeni_bugun,
+        "#1F6FEB",
+        "#F0F7FF",
+        "#1F6FEB",
+    )
+    kutular += _yeni_kutu(
+        "📅 Önceki gün yeni ihale girildi",
+        "Dün ilanı yayımlanan (09:00 sonrası girilenler ertesi sabah burada), teklif vermeye açık kayıtlar",
+        yeni_dun,
+        "#B45309",
+        "#FFF7ED",
+        "#B45309",
+    )
+
     html = f"""
     <html><body style="font-family:Arial,sans-serif;color:#222">
-      <h2 style="margin-bottom:6px">EKAP İhale Sonuçları</h2>
+      <h2 style="margin-bottom:6px">{_esc(subject)}</h2>
       <p style="margin-top:0">
         <b>OKAS:</b> {_esc(okas)} —
         <b>{n}</b> teklif vermeye açık (ihale tarihi ≥ bugün, sansür uygulanmış)
       </p>
-      {yeni_box}
+      {kutular}
       <h3 style="margin:18px 0 8px 0">Tüm teklif vermeye açık liste</h3>
       <table border="1" cellpadding="6" cellspacing="0"
              style="border-collapse:collapse;font-size:13px">
@@ -201,6 +260,7 @@ def ihale_sonuclarini_maile_cevir(
       </table>
     </body></html>
     """
+    _ = yeni_birlesik  # gösterim kutularında ayrık kullanıyoruz
     return subject, body, html
 
 
@@ -208,7 +268,10 @@ def sonuclari_email_gonder(
     to: str,
     veriler: List[Dict[str, str]],
     okas: str,
-    yeni_bu_hafta: Optional[List[Dict[str, str]]] = None,
+    yeni_bu_hafta: Optional[Union[List[Dict[str, str]], Dict[str, Any]]] = None,
+    **kwargs: Any,
 ) -> Dict[str, Any]:
-    subject, body, html = ihale_sonuclarini_maile_cevir(veriler, okas, yeni_bu_hafta)
+    # geriye dönük: yeni_bu_hafta=list veya meta=dict; kwargs.yeni_meta
+    meta = kwargs.get("yeni_meta", yeni_bu_hafta)
+    subject, body, html = ihale_sonuclarini_maile_cevir(veriler, okas, meta)
     return send_email(to=to, subject=subject, body=body, html=html)

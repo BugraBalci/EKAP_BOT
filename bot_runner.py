@@ -88,13 +88,17 @@ def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
     # Geriye dönük: düz liste gelirse
     if isinstance(payload, list):
         toplanan_veriler = payload
-        yeni_bu_hafta = []
+        meta = {"yeni_bu_hafta": [], "yeni_bugun": [], "yeni_dun": []}
     elif isinstance(payload, dict):
         toplanan_veriler = payload.get("tenders") or []
-        yeni_bu_hafta = payload.get("yeni_bu_hafta") or []
+        meta = {
+            "yeni_bu_hafta": payload.get("yeni_bu_hafta") or [],
+            "yeni_bugun": payload.get("yeni_bugun") or [],
+            "yeni_dun": payload.get("yeni_dun") or [],
+        }
     else:
         raise RuntimeError("API beklenmeyen sonuç döndürdü.")
 
     _ = durum
     verileri_kaydet(toplanan_veriler, dosya_adi=kayit_dosyasi)
-    return toplanan_veriler, kayit_dosyasi, yeni_bu_hafta
+    return toplanan_veriler, kayit_dosyasi, meta

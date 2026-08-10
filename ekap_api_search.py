@@ -141,6 +141,7 @@ async def search_page(
     *,
     ihale_baslangic: Optional[date] = None,
     ilan_baslangic: Optional[date] = None,
+    ilan_bitis: Optional[date] = None,
 ) -> Dict[str, Any]:
     params = {
         "searchText": "",
@@ -162,7 +163,7 @@ async def search_page(
         "ihaleTarihSaatBaslangic": _format_api_date(ihale_baslangic) if ihale_baslangic else None,
         "ihaleTarihSaatBitis": None,
         "ilanTarihSaatBaslangic": _format_api_date(ilan_baslangic) if ilan_baslangic else None,
-        "ilanTarihSaatBitis": None,
+        "ilanTarihSaatBitis": _format_api_date(ilan_bitis) if ilan_bitis else None,
         "yasaKapsami4734List": [],
         "ihaleTuruIdList": [],
         "ihaleUsulIdList": [],
@@ -243,6 +244,7 @@ async def _sayfala(
     *,
     ihale_baslangic: Optional[date],
     ilan_baslangic: Optional[date],
+    ilan_bitis: Optional[date] = None,
     etiket: str,
 ) -> List[Dict[str, str]]:
     bugun = date.today()
@@ -267,6 +269,7 @@ async def _sayfala(
             sayfa_boyutu,
             ihale_baslangic=ihale_baslangic,
             ilan_baslangic=ilan_baslangic,
+            ilan_bitis=ilan_bitis,
         )
         tenders = raw.get("list") or []
         total = int(raw.get("totalCount") or 0)
@@ -294,11 +297,10 @@ async def _sayfala(
 async def ara(okas: str, haric: str, sayfa_limiti: int, sayfa_boyutu: int = 50) -> Dict[str, Any]:
     """
     Döner:
-      {
-        "tenders": [...],          # teklif vermeye açık, ihale tarihi >= bugün
-        "yeni_bu_hafta": [...],    # bu hafta ilanı çıkanlar (aynı filtreler)
-        "okas": "..."
-      }
+      tenders: teklif vermeye açık, ihale tarihi >= bugün
+      yeni_bugun: bugün ilanı çıkanlar (09:00 mailinde "Bugün yeni bir ihale var")
+      yeni_dun: dün ilanı çıkanlar (09:00 mailinde "Önceki gün yeni ihale girildi")
+      yeni_bu_hafta: ikisinin birleşimi (gösterim)
     """
     from ihale_client import EKAPClient
 
@@ -306,9 +308,8 @@ async def ara(okas: str, haric: str, sayfa_limiti: int, sayfa_boyutu: int = 50) 
     haricler = kelime_listesi(haric)
     okas_codes = await expand_okas_codes(client, okas)
     bugun = date.today()
-    hafta_basi = bugun - timedelta(days=bugun.weekday())  # Pazartesi
+    dun = bugun - timedelta(days=1)
 
-    # Sitedeki gibi: yalnızca bugünden sonraki ihale tarihleri (eski hayalet kayıtları ele)
     tum = await _sayfala(
         client,
         okas_codes,
@@ -319,18 +320,46 @@ async def ara(okas: str, haric: str, sayfa_limiti: int, sayfa_boyutu: int = 50) 
         ilan_baslangic=None,
         etiket="acik+gelecek",
     )
-    yeni = await _sayfala(
+    yeni_bugun = await _sayfala(
         client,
         okas_codes,
         haricler,
         sayfa_limiti,
         sayfa_boyutu,
         ihale_baslangic=bugun,
-        ilan_baslangic=hafta_basi,
-        etiket="bu-hafta-yeni",
+        ilan_baslangic=bugun,
+        ilan_bitis=bugun,
+        etiket="yeni-bugun",
+    )
+    yeni_dun = await _sayfala(
+        client,
+        okas_codes,
+        haricler,
+        sayfa_limiti,
+        sayfa_boyutu,
+        ihale_baslangic=bugun,
+        ilan_baslangic=dun,
+        ilan_bitis=dun,
+        etiket="yeni-dun",
     )
 
-    return {"okas": okas, "tenders": tum, "yeni_bu_hafta": yeni}
+    # Birleşik liste (önce bugün, sonra dün), İKN tekil
+    gorulen: Set[str] = set()
+    yeni_birlesik: List[Dict[str, str]] = []
+    for row in yeni_bugun + yeni_dun:
+        ikn = row.get("İKN") or ""
+        if ikn in gorulen:
+            continue
+        gorulen.add(ikn)
+        yeni_birlesik.append(row)
+
+    return {
+        "okas": okas,
+        "tenders": tum,
+        "yeni_bugun": yeni_bugun,
+        "yeni_dun": yeni_dun,
+        "yeni_bu_hafta": yeni_birlesik,
+    }
 
 
 def main() -> None:

@@ -41,12 +41,17 @@ def main() -> int:
         )
         return 1
 
-    veriler, _dosya, yeni = ekap_botunu_calistir(
+    veriler, _dosya, meta = ekap_botunu_calistir(
         args.okas, "Teklif Vermeye Açık", args.haric, args.limit
     )
-    print(f"Özet: açık={len(veriler)} | bu hafta yeni={len(yeni)} | alıcı={len(alicilar)}")
+    if isinstance(meta, list):
+        meta = {"yeni_bu_hafta": meta, "yeni_bugun": [], "yeni_dun": []}
 
-    # Hayalet kontrolü
+    print(
+        f"Özet: açık={len(veriler)} | bugün yeni={len(meta.get('yeni_bugun') or [])} | "
+        f"dün yeni={len(meta.get('yeni_dun') or [])} | alıcı={len(alicilar)}"
+    )
+
     for v in veriler:
         ad = (v.get("İşin Adı") or "").upper()
         kurum = (v.get("Kurum") or "").upper()
@@ -54,7 +59,7 @@ def main() -> int:
             print("UYARI beklenmeyen kayıt:", v.get("İKN"), v.get("İşin Adı"), file=sys.stderr)
 
     for to in alicilar:
-        r = sonuclari_email_gonder(to, veriler, args.okas, yeni_bu_hafta=yeni)
+        r = sonuclari_email_gonder(to, veriler, args.okas, yeni_meta=meta)
         print(f"MAIL {to}: {r.get('status') or r}")
 
     return 0

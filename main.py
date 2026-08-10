@@ -107,11 +107,11 @@ class EkapBotApp:
 
     def _botu_arka_planda_calistir(self, okas, durum, haric, limit, email):
         try:
-            veriler, dosya, yeni = ekap_botunu_calistir(okas, durum, haric, limit)
+            veriler, dosya, meta = ekap_botunu_calistir(okas, durum, haric, limit)
             email_notu = ""
             if email:
                 try:
-                    sonuclari_email_gonder(email, veriler, okas, yeni_bu_hafta=yeni)
+                    sonuclari_email_gonder(email, veriler, okas, yeni_meta=meta)
                     email_notu = f"\n📧 Sonuçlar e-posta ile gönderildi: {email}"
                 except Exception as mail_hata:
                     email_notu = f"\n⚠️ E-posta gönderilemedi: {mail_hata}"
