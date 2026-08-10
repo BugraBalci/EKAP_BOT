@@ -4,19 +4,17 @@ from tkinter import ttk
 import threading
 import webbrowser
 from datetime import datetime
-import re # METİNLERİ CIMBIZLA PARÇALAMAK İÇİN EKLENDİ
+import re
 
-# Orkestra şefimiz olan yürütücüyü içeri alıyoruz
 from bot_runner import ekap_botunu_calistir
 
 class EkapBotApp:
     def __init__(self, root):
         self.root = root
         self.root.title("EKAP Bot Yöneticisi")
-        self.root.geometry("420x400")
+        self.root.geometry("450x380")
         self.root.resizable(False, False)
         self.root.config(padx=20, pady=20)
-        
         self.arayuzu_olustur()
 
     def arayuzu_olustur(self):
@@ -24,39 +22,50 @@ class EkapBotApp:
         lbl_baslik.pack(pady=(0, 15))
 
         tk.Label(self.root, text="OKAS Kodu (Örn: 48000000):", font=("Arial", 10, "bold")).pack(anchor="w")
-        self.entry_okas = tk.Entry(self.root, width=45)
+        self.entry_okas = tk.Entry(self.root, width=48)
         self.entry_okas.insert(0, "48000000")
         self.entry_okas.pack(pady=(0, 10))
 
-        tk.Label(self.root, text="İhale Durumu:", font=("Arial", 10, "bold")).pack(anchor="w")
-        self.entry_durum = tk.Entry(self.root, width=45)
-        self.entry_durum.insert(0, "Teklif Vermeye Açık")
-        self.entry_durum.pack(pady=(0, 10))
-
-        tk.Label(self.root, text="İstenmeyen (Silinecek) Kelime:", font=("Arial", 10, "bold")).pack(anchor="w")
-        self.entry_haric = tk.Entry(self.root, width=45)
-        self.entry_haric.insert(0, "lisans")
+        tk.Label(self.root, text="İstenmeyen Kelimeler (Virgülle ayırın, örn: lisans,araba):", font=("Arial", 9, "bold")).pack(anchor="w")
+        self.entry_haric = tk.Entry(self.root, width=48)
+        self.entry_haric.insert(0, "lisans, araba")
         self.entry_haric.pack(pady=(0, 10))
 
         tk.Label(self.root, text="Taranacak Sayfa Sayısı:", font=("Arial", 10, "bold")).pack(anchor="w")
-        self.entry_limit = tk.Entry(self.root, width=45)
+        self.entry_limit = tk.Entry(self.root, width=48)
         self.entry_limit.insert(0, "10")
-        self.entry_limit.pack(pady=(0, 20))
+        self.entry_limit.pack(pady=(0, 5))
+
+        self.var_tum_sayfalar = tk.BooleanVar(value=False)
+        self.chk_tum_sayfalar = tk.Checkbutton(self.root, text="Son sayfaya kadar git (Sınırsız tara)", 
+                                               variable=self.var_tum_sayfalar, 
+                                               font=("Arial", 9, "italic"),
+                                               command=self.tum_sayfalar_degisti)
+        self.chk_tum_sayfalar.pack(anchor="w", pady=(0, 15))
 
         self.btn_baslat = tk.Button(self.root, text="🚀 Botu Başlat", font=("Arial", 12, "bold"), 
                                     bg="#4CAF50", fg="white", height=2, command=self.baslat_tiklandi)
         self.btn_baslat.pack(fill="x")
 
+    def tum_sayfalar_degisti(self):
+        if self.var_tum_sayfalar.get():
+            self.entry_limit.config(state="disabled")
+        else:
+            self.entry_limit.config(state="normal")
+
     def baslat_tiklandi(self):
         okas = self.entry_okas.get()
-        durum = self.entry_durum.get()
+        durum = "Teklif Vermeye Açık" 
         haric = self.entry_haric.get()
         
-        try:
-            limit = int(self.entry_limit.get())
-        except ValueError:
-            messagebox.showwarning("Uyarı", "Sayfa sayısı sadece rakam olmalıdır!")
-            return
+        if self.var_tum_sayfalar.get():
+            limit = 0 
+        else:
+            try:
+                limit = int(self.entry_limit.get())
+            except ValueError:
+                messagebox.showwarning("Uyarı", "Sayfa sayısı sadece rakam olmalıdır!")
+                return
             
         self.btn_baslat.config(state=tk.DISABLED, text="⏳ Bot Çalışıyor...")
         threading.Thread(target=self._botu_arka_planda_calistir, args=(okas, durum, haric, limit), daemon=True).start()
@@ -81,59 +90,64 @@ class EkapBotApp:
         if not veriler:
             return
 
-        # --- 1. VERİLERİ SÜTUNLARA PARÇALAMA VE TEMİZLEME İŞLEMİ ---
         temiz_veriler = []
         for satir in veriler:
             if not any(satir.values()): continue
 
-            kurum_adi = satir.get("İhaleyi Veren Kurum", "")
-            detay_metni = satir.get("İhale Detayları", "")
+            kurum_adi = satir.get("İhaleyi Veren Kurum", "").strip()
+            detay_metni = satir.get("İhale Detayları", "").strip()
 
-            if detay_metni and "İKN" not in satir: # Eğer zaten parçalanmamışsa
-                # İKN Numarası
+            if detay_metni and "İKN" not in satir:
                 ikn_eslesme = re.search(r"(\d{4}/\d+)", detay_metni)
                 ikn = ikn_eslesme.group(1) if ikn_eslesme else "-"
 
-                # Tarih
                 tarih_eslesme = re.search(r"(\d{2}\.\d{2}\.\d{4}\s\d{2}:\d{2})", detay_metni)
                 tarih = tarih_eslesme.group(1) if tarih_eslesme else ""
 
-                # İl / Şehir
-                sehir_eslesme = re.search(r"([A-ZÇĞİÖŞÜ]+),\s*\d{2}\.\d{2}\.\d{4}", detay_metni)
+                sehir_eslesme = re.search(r"([A-ZÇĞİÖŞÜa-zçğıöşü]+),\s*\d{2}\.\d{2}\.\d{4}", detay_metni)
                 sehir = sehir_eslesme.group(1) if sehir_eslesme else "-"
 
-                # İşin Adı (Kurum adını tekrarlamamak için çıkarıyoruz)
-                isin_adi = "-"
-                if ikn != "-":
-                    bolunmus = detay_metni.split(ikn)
-                    if len(bolunmus) > 1:
-                        sonrasi = bolunmus[1]
-                        if kurum_adi and kurum_adi in sonrasi:
-                            sonrasi = sonrasi.replace(kurum_adi, "") # Tekrar eden kurumu sil!
-                        isin_adi = " ".join(sonrasi.split()).strip()
+                durum = "Teklif Vermeye Açık" if "Teklif Vermeye Açık" in detay_metni or "Katılıma Açık" in detay_metni else "Sonuçlandı"
+                tur = "Mal" if " Mal " in detay_metni or "Mal Alımı" in detay_metni else ("Hizmet" if " Hizmet " in detay_metni or "Hizmet Alımı" in detay_metni else ("Yapım" if " Yapım " in detay_metni or "Yapım İşi" in detay_metni else "-"))
 
-                # Durum ve Tür
-                durum = "Katılıma Açık" if "Katılıma Açık" in detay_metni else "Sonuçlandı"
-                tur = "Mal" if " Mal " in detay_metni else ("Hizmet" if " Hizmet " in detay_metni else ("Yapım" if " Yapım " in detay_metni else "-"))
+                isin_adi_raw = detay_metni
+                
+                if tarih: isin_adi_raw = isin_adi_raw.replace(tarih, "")
+                if ikn != "-": isin_adi_raw = isin_adi_raw.replace(ikn, "")
+                if sehir != "-": isin_adi_raw = isin_adi_raw.replace(sehir, "")
+                if kurum_adi: isin_adi_raw = re.sub(re.escape(kurum_adi), "", isin_adi_raw, flags=re.IGNORECASE)
 
-                # Yepyeni ve şık sözlüğümüz
+                for etiket in ["Değerlendirmesi Devam Eden İhaleler", "Sonuçlanmış İhaleler", "İptal Edilen İhaleler", "Teklif Vermeye Açık İhaleler", "Teklif Vermeye Açık", "Katılıma Açık", "Mal Alımı", "Hizmet Alımı", "Yapım İşi", "İhale Kayıt No:", "İhale Tarihi:", "Belli İstekliler Arasında", "Doğrudan Temin"]:
+                    isin_adi_raw = re.sub(re.escape(etiket), "", isin_adi_raw, flags=re.IGNORECASE)
+
+                kelimeler = ["Mal", "Hizmet", "Yapım", "Açık", "Pazarlık", "Teklif", "İstisna"]
+                for k in kelimeler:
+                    pattern = r"(?<!\w)" + k + r"(?!\w)"
+                    isin_adi_raw = re.sub(pattern, "", isin_adi_raw, flags=re.IGNORECASE)
+
+                isin_adi = " ".join(isin_adi_raw.split()).strip(" -,:/|")
+
+                if not isin_adi or len(isin_adi) < 3:
+                    fallback = detay_metni
+                    if ikn != "-": fallback = fallback.replace(ikn, "")
+                    if tarih: fallback = fallback.replace(tarih, "")
+                    isin_adi = " ".join(fallback.split()).strip(" |")
+
                 temiz_satir = {
-                    "Durum": durum,
+                    "Kurum": kurum_adi,
+                    "İşin Adı": isin_adi,
+                    "İKN": ikn,
+                    "İhale Tarihi": tarih,
                     "Tür": tur,
                     "İl": sehir,
-                    "İhale Tarihi": tarih,
-                    "İKN": ikn,
-                    "İşin Adı": isin_adi,
-                    "Kurum": kurum_adi.strip()
+                    "Durum": durum
                 }
                 temiz_veriler.append(temiz_satir)
             else:
                 temiz_veriler.append(satir)
 
-        # Temizlenmiş verileri sisteme ver
         veriler = temiz_veriler
 
-        # --- 2. TARİHE GÖRE SIRALAMA ---
         def tarih_cevir(s):
             tarih_metni = s.get("İhale Tarihi", "")
             try:
@@ -143,12 +157,10 @@ class EkapBotApp:
 
         veriler = sorted(veriler, key=tarih_cevir, reverse=False)
 
-        # --- 3. PENCERE VE TABLO TASARIMI ---
         sonuc_penceresi = tk.Toplevel(self.root)
         sonuc_penceresi.title("🔍 Çekilen İhale Sonuçları")
-        sonuc_penceresi.geometry("1400x700")
+        sonuc_penceresi.geometry("1450x700")
 
-        # PENCEREYİ ZORLA EN ÖNE GETİR!
         sonuc_penceresi.lift() 
         sonuc_penceresi.attributes('-topmost', True) 
         self.root.after(100, lambda: sonuc_penceresi.attributes('-topmost', False)) 
@@ -164,19 +176,24 @@ class EkapBotApp:
         style.configure("Custom.Treeview", font=("Arial", 10), rowheight=40, background="#FFFFFF", fieldbackground="#FFFFFF", borderwidth=1, relief="solid")
 
         sutunlar = list(veriler[0].keys())
-        tablo = ttk.Treeview(tablo_frame, columns=sutunlar, show="headings", style="Custom.Treeview")
         
-        # Sütunları dinamik genişliklerle oluştur
+        # --- EFSANE AYNA YANSIMASI (KURUM SOLDAN BAŞLAR) ---
+        istenen_sira = ("Kurum", "İşin Adı", "İKN", "İhale Tarihi", "Tür", "İl", "Durum")
+        
+        tablo = ttk.Treeview(tablo_frame, columns=sutunlar, displaycolumns=istenen_sira, show="headings", style="Custom.Treeview")
+        
         for sutun in sutunlar:
             tablo.heading(sutun, text=sutun.upper())
-            if sutun in ["Durum", "Tür", "İl"]:
-                tablo.column(sutun, width=100, anchor="center")
+            if sutun == "Kurum":
+                tablo.column(sutun, width=300, anchor="w")
+            elif sutun == "İşin Adı":
+                tablo.column(sutun, width=450, anchor="w")
             elif sutun in ["İKN", "İhale Tarihi"]:
                 tablo.column(sutun, width=130, anchor="center")
-            elif sutun == "Kurum":
-                tablo.column(sutun, width=300, anchor="w")
-            else:
-                tablo.column(sutun, width=400, anchor="w") # İşin Adı
+            elif sutun in ["Tür", "İl"]:
+                tablo.column(sutun, width=100, anchor="center")
+            else: # Durum
+                tablo.column(sutun, width=130, anchor="center")
         
         tablo.tag_configure("tek_satir", background="#FFFFFF")
         tablo.tag_configure("cift_satir", background="#E8ECEF")
@@ -198,7 +215,6 @@ class EkapBotApp:
                 tablo.insert("", tk.END, values=list(satir.values()), tags=(tag,))
                 sayac += 1
 
-        # --- ÇİFT TIKLAMA İLE LİNKE GİTME İŞLEMİ ---
         def cift_tiklandi(event):
             secili_item = tablo.selection()
             if secili_item:

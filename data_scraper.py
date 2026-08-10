@@ -33,20 +33,7 @@ def verileri_cek(driver, wait, maksimum_sayfa, dislanacak_kelime="lisans"):
             ihale_kartlari = driver.find_elements(By.XPATH, "//ihale-liste-item | //div[contains(@class, 'pc-card')]")
 
             if not ihale_kartlari:
-                print(f"⚠️ {sayfa_sayaci}. sayfada hiç ihale kartı bulunamadı. Teşhis dosyaları kaydediliyor...")
-                try:
-                    driver.save_screenshot(f"debug_sayfa_{sayfa_sayaci}.png")
-                    with open(f"debug_sayfa_{sayfa_sayaci}.html", "w", encoding="utf-8") as f:
-                        f.write(driver.page_source)
-                    print(f"🗂️ debug_sayfa_{sayfa_sayaci}.png ve debug_sayfa_{sayfa_sayaci}.html kaydedildi.")
-                except Exception as debug_hata:
-                    print(f"Debug dosyaları kaydedilemedi: {debug_hata}")
-
-                kaynak_kucuk = driver.page_source.lower()
-                if "kayıt bulunamadı" in kaynak_kucuk or "sonuç bulunamadı" in kaynak_kucuk or "kayit bulunamadi" in kaynak_kucuk:
-                    print("ℹ️ TEŞHİS: Site açıkça 'kayıt/sonuç bulunamadı' diyor -> Filtre kombinasyonunu kontrol et.")
-                else:
-                    print("ℹ️ TEŞHİS: Kartlar bulunamadı. Yeni seçiciler inceleniyor.")
+                print(f"⚠️ {sayfa_sayaci}. sayfada hiç ihale kartı bulunamadı.")
                 break
 
             for kart in ihale_kartlari:
@@ -68,6 +55,8 @@ def verileri_cek(driver, wait, maksimum_sayfa, dislanacak_kelime="lisans"):
                     metin = kart.text.strip()
                     kurum = "-"
                     ihale_adi = metin
+                    ikn = ""
+                    il_saat = ""
 
                 if not metin:
                     continue
@@ -110,7 +99,7 @@ def verileri_cek(driver, wait, maksimum_sayfa, dislanacak_kelime="lisans"):
                 
                 driver.execute_script("arguments[0].click();", next_btn)
                 sayfa_sayaci += 1
-                time.sleep(3)
+                time.sleep(4) 
             except Exception:
                 print("🏁 Sonraki sayfa butonu bulunamadı, tüm sayfalar tarandı.")
                 break
@@ -127,3 +116,5 @@ def verileri_kaydet(veri_listesi, dosya_adi="ekap_v2_sonuclar.csv"):
         df = pd.DataFrame(veri_listesi)
         df.to_csv(dosya_adi, index=False, encoding='utf-8-sig', sep=';')
         print(f"💾 Veriler '{dosya_adi}' dosyasına kaydedildi.")
+    else:
+        print("⚠️ Çekilecek hiçbir geçerli veri bulunamadı.")
