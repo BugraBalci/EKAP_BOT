@@ -3,17 +3,17 @@ from tkinter import messagebox
 from tkinter import ttk
 import threading
 import webbrowser
-from datetime import datetime
 import re
 
 from bot_runner import ekap_botunu_calistir
+from email_provider import sonuclari_email_gonder
 
 
 class EkapBotApp:
     def __init__(self, root):
         self.root = root
         self.root.title("EKAP Bot Yöneticisi")
-        self.root.geometry("450x380")
+        self.root.geometry("480x460")
         self.root.resizable(False, False)
         self.root.config(padx=20, pady=20)
         self.arayuzu_olustur()
@@ -37,15 +37,29 @@ class EkapBotApp:
         self.entry_limit.insert(0, "10")
         self.entry_limit.pack(pady=(0, 5))
 
-        self.var_tum_sayfalar = tk.BooleanVar(value=False)
+        self.var_tum_sayfalar = tk.BooleanVar(value=True)
         self.chk_tum_sayfalar = tk.Checkbutton(
             self.root,
-            text="Son sayfaya kadar git (Sınırsız tara)",
+            text="Tüm teklife açık sonuçları getir (OKAS alt kodları dahil)",
             variable=self.var_tum_sayfalar,
             font=("Arial", 9, "italic"),
             command=self.tum_sayfalar_degisti,
         )
-        self.chk_tum_sayfalar.pack(anchor="w", pady=(0, 15))
+        self.chk_tum_sayfalar.pack(anchor="w", pady=(0, 10))
+        self.tum_sayfalar_degisti()
+
+        tk.Label(self.root, text="E-posta (sonuçları gönder):", font=("Arial", 10, "bold")).pack(anchor="w")
+        self.entry_email = tk.Entry(self.root, width=48)
+        self.entry_email.pack(pady=(0, 5))
+
+        self.var_email_gonder = tk.BooleanVar(value=False)
+        self.chk_email = tk.Checkbutton(
+            self.root,
+            text="Arama bitince sonuçları e-posta ile gönder",
+            variable=self.var_email_gonder,
+            font=("Arial", 9, "italic"),
+        )
+        self.chk_email.pack(anchor="w", pady=(0, 15))
 
         self.btn_baslat = tk.Button(
             self.root,
@@ -68,6 +82,12 @@ class EkapBotApp:
         okas = self.entry_okas.get()
         durum = "Teklif Vermeye Açık"
         haric = self.entry_haric.get()
+        email = self.entry_email.get().strip()
+        email_gonder = self.var_email_gonder.get()
+
+        if email_gonder and (not email or "@" not in email):
+            messagebox.showwarning("Uyarı", "E-posta gönderimi için geçerli bir adres girin.")
+            return
 
         if self.var_tum_sayfalar.get():
             limit = 0
@@ -81,22 +101,31 @@ class EkapBotApp:
         self.btn_baslat.config(state=tk.DISABLED, text="⏳ Bot Çalışıyor...")
         threading.Thread(
             target=self._botu_arka_planda_calistir,
-            args=(okas, durum, haric, limit),
+            args=(okas, durum, haric, limit, email if email_gonder else None),
             daemon=True,
         ).start()
 
-    def _botu_arka_planda_calistir(self, okas, durum, haric, limit):
+    def _botu_arka_planda_calistir(self, okas, durum, haric, limit, email):
         try:
-            veriler, dosya = ekap_botunu_calistir(okas, durum, haric, limit)
-            self.root.after(0, self.islem_basarili, veriler, dosya)
+            veriler, dosya, yeni = ekap_botunu_calistir(okas, durum, haric, limit)
+            email_notu = ""
+            if email:
+                try:
+                    sonuclari_email_gonder(email, veriler, okas, yeni_bu_hafta=yeni)
+                    email_notu = f"\n📧 Sonuçlar e-posta ile gönderildi: {email}"
+                except Exception as mail_hata:
+                    email_notu = f"\n⚠️ E-posta gönderilemedi: {mail_hata}"
+            self.root.after(0, self.islem_basarili, veriler, dosya, email_notu)
         except Exception as e:
             self.root.after(0, self.islem_hatali, str(e))
 
-    def islem_basarili(self, veriler, dosya_adi):
+    def islem_basarili(self, veriler, dosya_adi, email_notu=""):
         self.btn_baslat.config(state=tk.NORMAL, text="🚀 Botu Başlat")
         messagebox.showinfo(
             "İşlem Tamam",
-            f"Harika! İşlem bitti.\nTarihe göre sıralı veriler '{dosya_adi}' dosyasına kaydedildi.",
+            f"Harika! İşlem bitti.\n"
+            f"{len(veriler)} kayıt '{dosya_adi}' dosyasına kaydedildi."
+            f"{email_notu}",
         )
         self.sonuclari_goster(veriler)
 
@@ -109,15 +138,7 @@ class EkapBotApp:
             messagebox.showinfo("Sonuç Yok", "Filtreye uyan ihale bulunamadı.")
             return
 
-        def tarih_cevir(s):
-            tarih_metni = s.get("İhale Tarihi", "")
-            try:
-                return datetime.strptime(tarih_metni, "%d.%m.%Y %H:%M")
-            except ValueError:
-                return datetime.max
-
-        veriler = sorted(veriler, key=tarih_cevir, reverse=False)
-
+        # Sıra: EKAP API / site sırası (ihaleTarihi desc) — yeniden sıralama yok
         sonuc_penceresi = tk.Toplevel(self.root)
         sonuc_penceresi.title("🔍 Çekilen İhale Sonuçları")
         sonuc_penceresi.geometry("1450x700")
@@ -151,7 +172,7 @@ class EkapBotApp:
             relief="solid",
         )
 
-        istenen_sira = ("Kurum", "İşin Adı", "İKN", "İhale Tarihi", "Tür", "İl", "Durum")
+        istenen_sira = ("Kurum", "İşin Adı", "İKN", "İhale Tarihi", "Tür", "İl", "Durum", "Link")
         tablo = ttk.Treeview(
             tablo_frame,
             columns=istenen_sira,
@@ -163,15 +184,17 @@ class EkapBotApp:
         for sutun in istenen_sira:
             tablo.heading(sutun, text=sutun.upper())
             if sutun == "Kurum":
-                tablo.column(sutun, width=300, anchor="w")
+                tablo.column(sutun, width=260, anchor="w")
             elif sutun == "İşin Adı":
-                tablo.column(sutun, width=450, anchor="w")
+                tablo.column(sutun, width=380, anchor="w")
             elif sutun in ["İKN", "İhale Tarihi"]:
-                tablo.column(sutun, width=130, anchor="center")
+                tablo.column(sutun, width=120, anchor="center")
             elif sutun in ["Tür", "İl"]:
-                tablo.column(sutun, width=100, anchor="center")
+                tablo.column(sutun, width=90, anchor="center")
+            elif sutun == "Link":
+                tablo.column(sutun, width=220, anchor="w")
             else:
-                tablo.column(sutun, width=180, anchor="center")
+                tablo.column(sutun, width=160, anchor="center")
 
         tablo.tag_configure("tek_satir", background="#FFFFFF")
         tablo.tag_configure("cift_satir", background="#E8ECEF")
@@ -199,6 +222,12 @@ class EkapBotApp:
             if not secili_item:
                 return
             degerler = tablo.item(secili_item[0], "values")
+            # Önce Link sütunu
+            for deger in degerler:
+                deger_str = str(deger)
+                if deger_str.startswith("http"):
+                    webbrowser.open(deger_str)
+                    return
             for deger in degerler:
                 eslesme = re.search(r"(\d{4}/\d+)", str(deger))
                 if eslesme:

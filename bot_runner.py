@@ -25,7 +25,10 @@ def verileri_kaydet(veri_listesi, dosya_adi="ekap_arayuz_sonuclar.csv"):
 
 
 def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
-    """ihale-mcp EKAPClient ile arar; Selenium kullanmaz."""
+    """ihale-mcp EKAPClient ile arar; Selenium kullanmaz.
+
+    Returns: (tenders, csv_path, yeni_bu_hafta)
+    """
     kayit_dosyasi = "ekap_arayuz_sonuclar.csv"
 
     if not VENDOR.exists():
@@ -53,7 +56,7 @@ def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
     ]
 
     print("🔎 EKAP API araması başlıyor (ihale-mcp)...")
-    print(f"   OKAS={okas} | durum filtresi=katılıma/teklif açık | sayfa_limiti={limit}")
+    print(f"   OKAS={okas} | açık + ihale tarihi≥bugün | sayfa_limiti={limit}")
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(VENDOR) + (
@@ -78,15 +81,20 @@ def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
         )
 
     try:
-        toplanan_veriler = json.loads(proc.stdout or "[]")
+        payload = json.loads(proc.stdout or "{}")
     except json.JSONDecodeError as e:
         raise RuntimeError(f"API çıktısı JSON değil: {e}\nSTDOUT: {proc.stdout[:500]}") from e
 
-    if not isinstance(toplanan_veriler, list):
+    # Geriye dönük: düz liste gelirse
+    if isinstance(payload, list):
+        toplanan_veriler = payload
+        yeni_bu_hafta = []
+    elif isinstance(payload, dict):
+        toplanan_veriler = payload.get("tenders") or []
+        yeni_bu_hafta = payload.get("yeni_bu_hafta") or []
+    else:
         raise RuntimeError("API beklenmeyen sonuç döndürdü.")
 
-    # durum parametresi GUI'den geliyor; API tarafında 'açık' filtresi uygulandı
     _ = durum
-
     verileri_kaydet(toplanan_veriler, dosya_adi=kayit_dosyasi)
-    return toplanan_veriler, kayit_dosyasi
+    return toplanan_veriler, kayit_dosyasi, yeni_bu_hafta

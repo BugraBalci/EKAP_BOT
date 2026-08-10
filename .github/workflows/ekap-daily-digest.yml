@@ -1,0 +1,60 @@
+# Her sabah 09:00 Türkiye (UTC+3) — bilgisayar açık olmak zorunda değil.
+# Secrets (Settings → Secrets and variables → Actions):
+#   ENTROPY_EMAIL_API_KEY  → MSA API key
+#   EKAP_EMAIL_RECIPIENTS  → virgülle alıcılar (örn: a@x.com,b@y.com)
+
+name: EKAP Daily Digest
+
+on:
+  schedule:
+    # 06:00 UTC = 09:00 Europe/Istanbul (Türkiye DST kullanmıyor)
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      recipients:
+        description: "Alıcılar (boşsa secret EKAP_EMAIL_RECIPIENTS kullanılır)"
+        required: false
+        default: ""
+      okas:
+        description: "OKAS kodu"
+        required: false
+        default: "48000000"
+
+jobs:
+  send-digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Clone ihale-mcp vendor
+        run: |
+          git clone --depth 1 https://github.com/saidsurucu/ihale-mcp vendor/ihale-mcp
+          uv sync --python 3.12 --directory vendor/ihale-mcp
+
+      - name: Send daily digest
+        env:
+          ENTROPY_EMAIL_API_URL: https://msa.entropywork.com/api/send-email
+          ENTROPY_EMAIL_API_KEY: ${{ secrets.ENTROPY_EMAIL_API_KEY }}
+          EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS }}
+        run: |
+          set -euo pipefail
+          TO="${{ github.event.inputs.recipients }}"
+          OKAS="${{ github.event.inputs.okas }}"
+          OKAS="${OKAS:-48000000}"
+          if [ -n "${TO}" ]; then
+            python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --to "$TO"
+          else
+            python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba"
+          fi
