@@ -16,9 +16,9 @@ on:
         required: false
         default: ""
       okas:
-        description: "OKAS kodu"
+        description: "OKAS kodu (virgülle birden fazla)"
         required: false
-        default: "48000000"
+        default: "48000000,31711000"
 
 jobs:
   send-digest:
@@ -52,7 +52,7 @@ jobs:
           set -euo pipefail
           TO="${{ github.event.inputs.recipients }}"
           OKAS="${{ github.event.inputs.okas }}"
-          OKAS="${OKAS:-48000000}"
+          OKAS="${OKAS:-48000000,31711000}"
           if [ -n "${TO}" ]; then
             python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --to "$TO"
           else

@@ -97,6 +97,18 @@ async def _okas_query(client, filt: list, take: int = 500) -> List[dict]:
     return raw.get("loadResult", {}).get("data", []) or []
 
 
+def parse_okas_roots(okas: str) -> List[str]:
+    roots: List[str] = []
+    seen: Set[str] = set()
+    for part in (okas or "").replace(";", ",").split(","):
+        code = part.strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        roots.append(code)
+    return roots
+
+
 async def expand_okas_codes(client, root_code: str) -> List[str]:
     root_code = (root_code or "").strip()
     if not root_code:
@@ -126,6 +138,25 @@ async def expand_okas_codes(client, root_code: str) -> List[str]:
         file=sys.stderr,
         flush=True,
     )
+    return out
+
+
+def _ihale_tarih_key(row: Dict[str, str]) -> datetime:
+    return parse_ihale_tarih(row.get("İhale Tarihi", "")) or datetime.min
+
+
+def birlestir_satirlar(*listeler: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    """İKN birleşim kümesi (OR): sadece A, sadece B veya her ikisi de kalır."""
+    gorulen: Set[str] = set()
+    out: List[Dict[str, str]] = []
+    for liste in listeler:
+        for row in liste:
+            ikn = row.get("İKN") or ""
+            if not ikn or ikn in gorulen:
+                continue
+            gorulen.add(ikn)
+            out.append(row)
+    out.sort(key=_ihale_tarih_key, reverse=True)
     return out
 
 
@@ -298,73 +329,129 @@ async def ara(okas: str, haric: str, sayfa_limiti: int, sayfa_boyutu: int = 50) 
     """
     Döner:
       tenders: teklif vermeye açık, ihale tarihi >= bugün
-      yeni_bugun: bugün ilanı çıkanlar (09:00 mailinde "Bugün yeni bir ihale var")
-      yeni_dun: dün ilanı çıkanlar (09:00 mailinde "Önceki gün yeni ihale girildi")
-      yeni_bu_hafta: ikisinin birleşimi (gösterim)
+      yeni_bugun: bugün yayımlanan ilanlar
+      yeni_dun: dün yayımlanan ilanlar
+      yeni_bu_hafta: bu hafta yayımlanıp bugün/dün dışında kalan ilanlar
+
+    Birden fazla OKAS kökü virgülle verilirse her kök ayrı aranır, sonuçlar
+    İKN birleşim kümesi olarak birleştirilir (kesişim değil).
     """
     from ihale_client import EKAPClient
 
     client = EKAPClient()
     haricler = kelime_listesi(haric)
-    okas_codes = await expand_okas_codes(client, okas)
+    roots = parse_okas_roots(okas)
     bugun = date.today()
     dun = bugun - timedelta(days=1)
+    hafta_baslangici = bugun - timedelta(days=bugun.weekday())
 
-    tum = await _sayfala(
-        client,
-        okas_codes,
-        haricler,
-        sayfa_limiti,
-        sayfa_boyutu,
-        ihale_baslangic=bugun,
-        ilan_baslangic=None,
-        etiket="acik+gelecek",
-    )
-    yeni_bugun = await _sayfala(
-        client,
-        okas_codes,
-        haricler,
-        sayfa_limiti,
-        sayfa_boyutu,
-        ihale_baslangic=bugun,
-        ilan_baslangic=bugun,
-        ilan_bitis=bugun,
-        etiket="yeni-bugun",
-    )
-    yeni_dun = await _sayfala(
-        client,
-        okas_codes,
-        haricler,
-        sayfa_limiti,
-        sayfa_boyutu,
-        ihale_baslangic=bugun,
-        ilan_baslangic=dun,
-        ilan_bitis=dun,
-        etiket="yeni-dun",
-    )
+    tum_grup: List[List[Dict[str, str]]] = []
+    bugun_grup: List[List[Dict[str, str]]] = []
+    dun_grup: List[List[Dict[str, str]]] = []
+    hafta_grup: List[List[Dict[str, str]]] = []
 
-    # Birleşik liste (önce bugün, sonra dün), İKN tekil
+    for root in roots:
+        okas_codes = await expand_okas_codes(client, root)
+        print(
+            f"🔎 OKAS kökü {root} ayrı aranıyor (birleşim kümesi, kesişim değil)",
+            file=sys.stderr,
+            flush=True,
+        )
+        tum_grup.append(
+            await _sayfala(
+                client,
+                okas_codes,
+                haricler,
+                sayfa_limiti,
+                sayfa_boyutu,
+                ihale_baslangic=bugun,
+                ilan_baslangic=None,
+                etiket=f"acik+gelecek:{root}",
+            )
+        )
+        bugun_grup.append(
+            await _sayfala(
+                client,
+                okas_codes,
+                haricler,
+                sayfa_limiti,
+                sayfa_boyutu,
+                ihale_baslangic=bugun,
+                ilan_baslangic=bugun,
+                ilan_bitis=bugun,
+                etiket=f"yeni-bugun:{root}",
+            )
+        )
+        dun_grup.append(
+            await _sayfala(
+                client,
+                okas_codes,
+                haricler,
+                sayfa_limiti,
+                sayfa_boyutu,
+                ihale_baslangic=bugun,
+                ilan_baslangic=dun,
+                ilan_bitis=dun,
+                etiket=f"yeni-dun:{root}",
+            )
+        )
+        hafta_grup.append(
+            await _sayfala(
+                client,
+                okas_codes,
+                haricler,
+                sayfa_limiti,
+                sayfa_boyutu,
+                ihale_baslangic=bugun,
+                ilan_baslangic=hafta_baslangici,
+                ilan_bitis=bugun,
+                etiket=f"yeni-bu-hafta:{root}",
+            )
+        )
+
+    tum = birlestir_satirlar(*tum_grup)
+    yeni_bugun = birlestir_satirlar(*bugun_grup)
+    yeni_dun = birlestir_satirlar(*dun_grup)
+    yeni_hafta_ham = birlestir_satirlar(*hafta_grup)
+
+    # Bu hafta listesi: bugün ve dün bloklarına girenleri ayıkla, İKN tekil kalsın.
     gorulen: Set[str] = set()
-    yeni_birlesik: List[Dict[str, str]] = []
     for row in yeni_bugun + yeni_dun:
+        ikn = row.get("İKN") or ""
+        if ikn:
+            gorulen.add(ikn)
+
+    yeni_hafta: List[Dict[str, str]] = []
+    for row in yeni_hafta_ham:
         ikn = row.get("İKN") or ""
         if ikn in gorulen:
             continue
         gorulen.add(ikn)
-        yeni_birlesik.append(row)
+        yeni_hafta.append(row)
+
+    print(
+        f"🔗 Birleşim: açık={len(tum)} bugün={len(yeni_bugun)} dün={len(yeni_dun)} "
+        f"hafta={len(yeni_hafta)} (kökler: {', '.join(roots)})",
+        file=sys.stderr,
+        flush=True,
+    )
 
     return {
         "okas": okas,
         "tenders": tum,
         "yeni_bugun": yeni_bugun,
         "yeni_dun": yeni_dun,
-        "yeni_bu_hafta": yeni_birlesik,
+        "yeni_bu_hafta": yeni_hafta,
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--okas", required=True)
+    parser.add_argument(
+        "--okas",
+        required=True,
+        help="OKAS kodu veya virgülle birden fazla (örn: 48000000,31711000)",
+    )
     parser.add_argument("--haric", default="")
     parser.add_argument("--limit", type=int, default=0)
     args = parser.parse_args()

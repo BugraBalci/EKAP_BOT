@@ -4,7 +4,7 @@
 Kullanım:
   python3 daily_digest.py
   python3 daily_digest.py --to balcibugra4@gmail.com,diger@ornek.com
-  python3 daily_digest.py --okas 48000000 --haric "lisans,araba"
+  python3 daily_digest.py --okas 48000000,31711000 --haric "lisans,araba"
 
 Alıcılar (--to yoksa) .env içindeki EKAP_EMAIL_RECIPIENTS'tan okunur.
 """
@@ -27,7 +27,7 @@ def _alicilar(cli_to: str) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="EKAP günlük özet maili")
-    parser.add_argument("--okas", default="48000000")
+    parser.add_argument("--okas", default="48000000,31711000")
     parser.add_argument("--haric", default="lisans, araba")
     parser.add_argument("--limit", type=int, default=0, help="0 = tüm sayfalar")
     parser.add_argument("--to", default="", help="virgülle alıcılar")

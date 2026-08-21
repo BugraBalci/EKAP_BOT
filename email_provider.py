@@ -159,17 +159,17 @@ def build_subject(
 ) -> str:
     """
     09:00 sabah maili başlığı:
-      - Bugün ilan çıktıysa → "Bugün yeni bir ihale var"
-      - Dün (09 sonrası / dünün ilanı) → "Önceki gün yeni ihale girildi"
+      - Bugün ilan yayımlandıysa → "Bugün yeni ilan var"
+      - Dün ilan yayımlandıysa → "Önceki gün yeni ilan var"
     """
     parts: List[str] = []
     if yeni_bugun:
-        parts.append("Bugün yeni bir ihale var")
+        parts.append(f"Bugün {len(yeni_bugun)} yeni ilan var")
     if yeni_dun:
-        parts.append("Önceki gün yeni ihale girildi")
+        parts.append(f"Önceki günden {len(yeni_dun)} yeni ilan var")
     if parts:
         return " | ".join(parts) + f" — OKAS {okas} ({n_acik} açık)"
-    return f"EKAP İhale Özeti — OKAS {okas} ({n_acik} açık, yeni ihale yok)"
+    return f"EKAP İhale Özeti — OKAS {okas} ({n_acik} açık, yeni ilan yok)"
 
 
 def ihale_sonuclarini_maile_cevir(
@@ -179,14 +179,14 @@ def ihale_sonuclarini_maile_cevir(
 ) -> tuple[str, str, str]:
     yeni_bugun: List[Dict[str, str]] = []
     yeni_dun: List[Dict[str, str]] = []
-    yeni_birlesik: List[Dict[str, str]] = []
+    yeni_hafta: List[Dict[str, str]] = []
 
     if isinstance(yeni_meta, list):
-        yeni_birlesik = yeni_meta
+        yeni_hafta = yeni_meta
     elif isinstance(yeni_meta, dict):
         yeni_bugun = list(yeni_meta.get("yeni_bugun") or [])
         yeni_dun = list(yeni_meta.get("yeni_dun") or [])
-        yeni_birlesik = list(yeni_meta.get("yeni_bu_hafta") or (yeni_bugun + yeni_dun))
+        yeni_hafta = list(yeni_meta.get("yeni_bu_hafta") or [])
 
     n = len(veriler)
     subject = build_subject(okas, n, yeni_bugun, yeni_dun)
@@ -194,20 +194,40 @@ def ihale_sonuclarini_maile_cevir(
     lines = [
         f"OKAS: {okas}",
         f"Konu özeti: {subject}",
-        f"Bugün yeni: {len(yeni_bugun)} | Önceki gün yeni: {len(yeni_dun)} | Açık liste: {n}",
+        (
+            "Not: 'Yeni' ifadesi ihale tarihini degil, ilanin EKAP'ta yayimlandigi gunu anlatir. "
+            "Bu yuzden ihale tarihi daha ileri bir tarih olabilir."
+        ),
+        (
+            f"Bugün yeni: {len(yeni_bugun)} | Önceki gün yeni: {len(yeni_dun)} | "
+            f"Bu hafta yeni: {len(yeni_hafta)} | Açık liste: {n}"
+        ),
         "",
-        "=== BUGÜN YENİ ÇIKAN İHALELER ===",
+        "=== BUGÜN YAYIMLANAN İLANLAR ===",
     ]
     if yeni_bugun:
         for v in yeni_bugun:
-            lines.append(f"- {v.get('İKN')} | {v.get('İşin Adı')} | {v.get('Link')}")
+            lines.append(
+                f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
+            )
     else:
         lines.append("(Yok)")
 
-    lines += ["", "=== ÖNCEKİ GÜN YENİ GİRİLEN İHALELER ==="]
+    lines += ["", "=== ÖNCEKİ GÜN YAYIMLANAN İLANLAR ==="]
     if yeni_dun:
         for v in yeni_dun:
-            lines.append(f"- {v.get('İKN')} | {v.get('İşin Adı')} | {v.get('Link')}")
+            lines.append(
+                f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
+            )
+    else:
+        lines.append("(Yok)")
+
+    lines += ["", "=== BU HAFTA YAYIMLANAN DIGER ILANLAR ==="]
+    if yeni_hafta:
+        for v in yeni_hafta:
+            lines.append(
+                f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
+            )
     else:
         lines.append("(Yok)")
 
@@ -221,20 +241,28 @@ def ihale_sonuclarini_maile_cevir(
 
     kutular = ""
     kutular += _yeni_kutu(
-        "🆕 Bugün yeni bir ihale var",
-        "Bugün ilanı yayımlanan, teklif vermeye açık kayıtlar",
+        "Bugün yayimlanan ilanlar",
+        "Bugün EKAP'ta ilanı yayımlanan kayıtlar. Ihale tarihi daha ileri bir gun olabilir.",
         yeni_bugun,
         "#1F6FEB",
         "#F0F7FF",
         "#1F6FEB",
     )
     kutular += _yeni_kutu(
-        "📅 Önceki gün yeni ihale girildi",
-        "Dün ilanı yayımlanan (09:00 sonrası girilenler ertesi sabah burada), teklif vermeye açık kayıtlar",
+        "Önceki gün yayimlanan ilanlar",
+        "Dün EKAP'ta yayımlanan kayitlar. Sabah cron gecikirse burada gorunebilir.",
         yeni_dun,
         "#B45309",
         "#FFF7ED",
         "#B45309",
+    )
+    kutular += _yeni_kutu(
+        "Bu hafta yayimlanan diger ilanlar",
+        "Bu haftada yayimlanmis ama bugun ve onceki gun listelerinde yer almayan kayitlar.",
+        yeni_hafta,
+        "#047857",
+        "#ECFDF5",
+        "#047857",
     )
 
     html = f"""
@@ -243,6 +271,10 @@ def ihale_sonuclarini_maile_cevir(
       <p style="margin-top:0">
         <b>OKAS:</b> {_esc(okas)} —
         <b>{n}</b> teklif vermeye açık (ihale tarihi ≥ bugün, sansür uygulanmış)
+      </p>
+      <p style="margin-top:0;color:#444;font-size:13px">
+        'Yeni' etiketi ihale tarihini degil, ilanin EKAP'ta yayimlandigi gunu anlatir.
+        Bu yuzden ihale tarihi daha ileri bir gunde olabilir.
       </p>
       {kutular}
       <h3 style="margin:18px 0 8px 0">Tüm teklif vermeye açık liste</h3>
@@ -260,7 +292,6 @@ def ihale_sonuclarini_maile_cevir(
       </table>
     </body></html>
     """
-    _ = yeni_birlesik  # gösterim kutularında ayrık kullanıyoruz
     return subject, body, html
 
 
