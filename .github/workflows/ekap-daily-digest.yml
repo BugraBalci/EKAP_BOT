@@ -1,14 +1,12 @@
-# Her sabah 09:00 Türkiye (UTC+3) — bilgisayar açık olmak zorunda değil.
+# Eski API tabanlı özet (EKAP 401 verdiği için zamanlanmış koşu kapalı).
+# Günlük Selenium taraması: .github/workflows/ekap_daily.yml
 # Secrets (Settings → Secrets and variables → Actions):
 #   ENTROPY_EMAIL_API_KEY  → MSA API key
 #   EKAP_EMAIL_RECIPIENTS  → virgülle alıcılar (örn: a@x.com,b@y.com)
 
-name: EKAP Daily Digest
+name: EKAP Daily Digest (API, manual)
 
 on:
-  schedule:
-    # 06:00 UTC = 09:00 Europe/Istanbul (Türkiye DST kullanmıyor)
-    - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
       recipients:

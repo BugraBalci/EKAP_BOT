@@ -1,0 +1,44 @@
+# Her sabah 08:30 Türkiye (UTC+3) — Selenium / headless Chrome ile EKAP tarama.
+# Secrets (Settings → Secrets and variables → Actions):
+#   SENDER_MAIL       → SMTP gönderen adres (ör. Gmail)
+#   SENDER_PASSWORD   → SMTP şifresi / Gmail uygulama şifresi
+#   RECEIVER_MAILS    → virgülle alıcılar (örn: a@x.com,b@y.com)
+
+name: EKAP Daily Selenium Digest
+
+on:
+  schedule:
+    # 05:30 UTC = 08:30 Europe/Istanbul (Türkiye DST kullanmıyor)
+    - cron: "30 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  scrape-and-mail:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Google Chrome
+        run: |
+          set -euo pipefail
+          wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get update
+          sudo apt-get install -y /tmp/google-chrome.deb
+          google-chrome --version
+
+      - name: Install Python dependencies
+        run: pip install selenium webdriver-manager pandas
+
+      - name: Run EKAP cron bot
+        env:
+          SENDER_MAIL: ${{ secrets.SENDER_MAIL }}
+          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
+          RECEIVER_MAILS: ${{ secrets.RECEIVER_MAILS }}
+        run: python cron_bot.py
