@@ -77,6 +77,41 @@ def tender_to_row(t: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
+def _http_status(exc: BaseException) -> Optional[int]:
+    resp = getattr(exc, "response", None)
+    code = getattr(resp, "status_code", None)
+    return int(code) if code is not None else None
+
+
+def _yeniden_denenebilir(exc: BaseException) -> bool:
+    code = _http_status(exc)
+    if code in {401, 403, 408, 429, 500, 502, 503, 504}:
+        return True
+    name = type(exc).__name__.lower()
+    metin = str(exc).lower()
+    return "timeout" in name or "connect" in name or "401" in metin or "unauthorized" in metin
+
+
+async def _istek_dene(coro_factory, *, deneme: int = 3, etiket: str = "EKAP"):
+    last: Optional[BaseException] = None
+    for i in range(1, deneme + 1):
+        try:
+            return await coro_factory()
+        except Exception as e:
+            last = e
+            if not _yeniden_denenebilir(e) or i == deneme:
+                raise
+            bekle = 2 ** i
+            print(
+                f"⚠️ {etiket} hata ({_http_status(e) or type(e).__name__}), "
+                f"{bekle}s sonra yeniden denenecek ({i}/{deneme})",
+                file=sys.stderr,
+                flush=True,
+            )
+            await asyncio.sleep(bekle)
+    raise last  # pragma: no cover
+
+
 async def _okas_query(client, filt: list, take: int = 500) -> List[dict]:
     params = {
         "loadOptions": {
@@ -93,7 +128,10 @@ async def _okas_query(client, filt: list, take: int = 500) -> List[dict]:
             "take": take,
         }
     }
-    raw = await client._make_request(client.okas_endpoint, params)
+    raw = await _istek_dene(
+        lambda: client._make_request(client.okas_endpoint, params),
+        etiket="OKAS",
+    )
     return raw.get("loadResult", {}).get("data", []) or []
 
 
@@ -114,7 +152,16 @@ async def expand_okas_codes(client, root_code: str) -> List[str]:
     if not root_code:
         return []
 
-    rows = await _okas_query(client, [["kod", "=", root_code]], take=10)
+    try:
+        rows = await _okas_query(client, [["kod", "=", root_code]], take=10)
+    except Exception as e:
+        print(
+            f"⚠️ OKAS ağacı alınamadı ({_http_status(e) or type(e).__name__}), "
+            f"kök kod olduğu gibi kullanılacak: {root_code}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return [root_code]
     if not rows:
         print(f"⚠️ OKAS kodu bulunamadı, olduğu gibi kullanılacak: {root_code}", file=sys.stderr, flush=True)
         return [root_code]
@@ -125,7 +172,16 @@ async def expand_okas_codes(client, root_code: str) -> List[str]:
         return [root_code]
 
     prefix = root_code.rstrip("0") or root_code
-    tree = await _okas_query(client, [["kod", "startswith", prefix]], take=500)
+    try:
+        tree = await _okas_query(client, [["kod", "startswith", prefix]], take=500)
+    except Exception as e:
+        print(
+            f"⚠️ OKAS alt kodları alınamadı ({_http_status(e) or type(e).__name__}), "
+            f"kök kod kullanılacak: {root_code}",
+            file=sys.stderr,
+            flush=True,
+        )
+        return [root_code]
     codes: Set[str] = {root_code}
     for item in tree:
         kod = (item.get("kod") or "").strip()
@@ -232,7 +288,10 @@ async def search_page(
         "paginationSkip": skip,
         "paginationTake": take,
     }
-    return await client._make_request(client.tender_endpoint, params)
+    return await _istek_dene(
+        lambda: client._make_request(client.tender_endpoint, params),
+        etiket="ihale-arama",
+    )
 
 
 def _filtrele_satirlar(

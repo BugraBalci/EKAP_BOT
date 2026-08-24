@@ -14,9 +14,19 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import traceback
 
 from bot_runner import ekap_botunu_calistir
-from email_provider import load_dotenv, sonuclari_email_gonder
+from email_provider import load_dotenv, sonuclari_email_gonder, uyari_mail_gonder
+
+
+def _actions_run_url() -> str:
+    repo = os.environ.get("GITHUB_REPOSITORY") or ""
+    run_id = os.environ.get("GITHUB_RUN_ID") or ""
+    if not repo or not run_id:
+        return ""
+    server = os.environ.get("GITHUB_SERVER_URL") or "https://github.com"
+    return f"{server}/{repo}/actions/runs/{run_id}"
 
 
 def _alicilar(cli_to: str) -> list[str]:
@@ -41,9 +51,24 @@ def main() -> int:
         )
         return 1
 
-    veriler, _dosya, meta = ekap_botunu_calistir(
-        args.okas, "Teklif Vermeye Açık", args.haric, args.limit
-    )
+    try:
+        veriler, _dosya, meta = ekap_botunu_calistir(
+            args.okas, "Teklif Vermeye Açık", args.haric, args.limit
+        )
+    except Exception as e:
+        hata = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()[-2500:]}"
+        print(hata, file=sys.stderr)
+        run_url = _actions_run_url()
+        mail_hatasi = 0
+        for to in alicilar:
+            try:
+                r = uyari_mail_gonder(to, okas=args.okas, hata=hata, run_url=run_url)
+                print(f"UYARI MAIL {to}: {r.get('status') or r}")
+            except Exception as mail_e:
+                mail_hatasi += 1
+                print(f"UYARI MAIL {to} gönderilemedi: {mail_e}", file=sys.stderr)
+        return 1 if mail_hatasi == 0 else 2
+
     if isinstance(meta, list):
         meta = {"yeni_bu_hafta": meta, "yeni_bugun": [], "yeni_dun": []}
 

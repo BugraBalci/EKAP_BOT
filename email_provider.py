@@ -295,6 +295,38 @@ def ihale_sonuclarini_maile_cevir(
     return subject, body, html
 
 
+def uyari_mail_gonder(
+    to: str,
+    *,
+    okas: str,
+    hata: str,
+    run_url: str = "",
+) -> Dict[str, Any]:
+    """Arama patlayınca sessiz kalmamak için kısa uyarı maili."""
+    konu = "EKAP özeti gönderilemedi — arama hatası"
+    govde = "\n".join(
+        [
+            "Sabah EKAP özeti gönderilemedi; ihale listesi çekilemedi.",
+            "",
+            f"OKAS: {okas}",
+            f"Hata: {hata}",
+            f"Koşu: {run_url}" if run_url else "",
+            "",
+            "Bu mail, cron'un çalıştığını ama EKAP API'nin cevap vermediğini bildirir.",
+        ]
+    ).strip()
+    html = f"""
+    <html><body style="font-family:Arial,sans-serif;color:#222">
+      <h2 style="color:#B91C1C">EKAP özeti gönderilemedi</h2>
+      <p>Sabah cron çalıştı ama ihale listesi çekilemedi; bu yüzden normal özet maili yok.</p>
+      <p><b>OKAS:</b> {_esc(okas)}</p>
+      <pre style="background:#FEF2F2;padding:12px;white-space:pre-wrap">{_esc(hata)}</pre>
+      {f'<p><a href="{_esc(run_url)}">GitHub Actions koşusu</a></p>' if run_url else ''}
+    </body></html>
+    """
+    return send_email(to=to, subject=konu, body=govde, html=html)
+
+
 def sonuclari_email_gonder(
     to: str,
     veriler: List[Dict[str, str]],
