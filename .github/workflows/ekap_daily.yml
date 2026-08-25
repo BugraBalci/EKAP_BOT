@@ -41,4 +41,5 @@ jobs:
           SENDER_MAIL: ${{ secrets.SENDER_MAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
           EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS }}
+          RECEIVER_MAILS: ${{ secrets.EKAP_EMAIL_RECIPIENTS }}
         run: python cron_bot.py

@@ -23,9 +23,13 @@ _CHROME_CANDIDATES = (
 def tarayiciyi_baslat():
     print("🌐 Tarayıcı başlatılıyor ve güvenlik duvarı aşılıyor...")
     options = webdriver.ChromeOptions()
+    options.page_load_strategy = "eager"
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--disable-extensions")
+    options.add_argument("--blink-settings=imagesEnabled=false")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument(f"--user-agent={DEFAULT_USER_AGENT}")
@@ -37,19 +41,22 @@ def tarayiciyi_baslat():
             options.binary_location = candidate
             break
 
+    # Actions'ta Chrome zaten kurulu; Selenium Manager 120 sn'lik
+    # webdriver-manager indirme timeout'una takılmaz.
     try:
+        driver = webdriver.Chrome(options=options)
+    except Exception as e:
+        print(f"⚠️ Selenium Manager başarısız ({e}); webdriver-manager deneniyor...")
         driver = webdriver.Chrome(
             service=Service(ChromeDriverManager().install()),
             options=options,
         )
-    except Exception as e:
-        print(f"⚠️ webdriver-manager başarısız ({e}); Selenium Manager deneniyor...")
-        driver = webdriver.Chrome(options=options)
 
+    driver.set_page_load_timeout(40)
     driver.execute_script(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
     )
 
-    print("🖥️ Headless Chrome 1920x1080 boyutunda başarıyla açıldı.")
+    print("🖥️ Headless Chrome 1920x1080 (eager, görselsiz) başarıyla açıldı.")
     wait = WebDriverWait(driver, 25)
     return driver, wait

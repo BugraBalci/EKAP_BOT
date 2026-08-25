@@ -2,7 +2,7 @@
 """GitHub Actions / cron: Selenium ile EKAP tarama + SMTP sabah bülteni.
 
 GUI (main.py) ve API (bot_runner.py) yollarına dokunmaz.
-Ortam değişkenleri: SENDER_MAIL, SENDER_PASSWORD, EKAP_EMAIL_RECIPIENTS
+Ortam değişkenleri: SENDER_MAIL, SENDER_PASSWORD, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
 İsteğe bağlı: SMTP_HOST, SMTP_PORT (varsayılan smtp.gmail.com:465 SSL), OKAS_KODU, HARIC_KELIME, SAYFA_LIMITI
 """
 
@@ -21,6 +21,7 @@ from email.utils import formataddr
 from typing import Dict, List, Sequence
 from zoneinfo import ZoneInfo
 
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
 
 from browser_utils import tarayiciyi_baslat
@@ -58,7 +59,10 @@ def _sayfa_limiti() -> int:
 
 
 def _alicilar() -> List[str]:
-    raw = os.environ.get("EKAP_EMAIL_RECIPIENTS") or ""
+    raw = (
+        (os.environ.get("EKAP_EMAIL_RECIPIENTS") or "").strip()
+        or (os.environ.get("RECEIVER_MAILS") or "").strip()
+    )
     return [x.strip() for x in raw.split(",") if x.strip() and "@" in x]
 
 
@@ -205,7 +209,9 @@ def mail_gonder(konu: str, html_govde: str, metin_govde: str) -> None:
     if not sender_password:
         raise RuntimeError("SENDER_PASSWORD ortam değişkeni eksik.")
     if not alicilar:
-        raise RuntimeError("EKAP_EMAIL_RECIPIENTS ortam değişkeni eksik veya geçersiz.")
+        raise RuntimeError(
+            "EKAP_EMAIL_RECIPIENTS (veya RECEIVER_MAILS) ortam değişkeni eksik veya geçersiz."
+        )
 
     host = (os.environ.get("SMTP_HOST") or "smtp.gmail.com").strip()
     port = int((os.environ.get("SMTP_PORT") or "465").strip())
@@ -224,6 +230,19 @@ def mail_gonder(konu: str, html_govde: str, metin_govde: str) -> None:
     print("✅ Mail gönderildi.")
 
 
+def _sayfaya_git(driver, url: str) -> None:
+    try:
+        driver.get(url)
+    except TimeoutException:
+        print("⚠️ Sayfa yükleme zaman aşımı; mevcut DOM ile devam ediliyor.")
+    try:
+        WebDriverWait(driver, 15).until(
+            lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
+        )
+    except TimeoutException:
+        print("⚠️ document.readyState beklenirken zaman aşımı; devam ediliyor.")
+
+
 def ekap_tara(okas_kodlari: Sequence[str], haric: str, limit: int) -> List[Dict[str, str]]:
     driver = None
     toplanan: List[Dict[str, str]] = []
@@ -231,17 +250,14 @@ def ekap_tara(okas_kodlari: Sequence[str], haric: str, limit: int) -> List[Dict[
 
     try:
         driver, wait = tarayiciyi_baslat()
-        driver.get(EKAP_URL)
-        WebDriverWait(driver, 25).until(
-            lambda d: d.execute_script("return document.readyState") == "complete"
-        )
+        _sayfaya_git(driver, EKAP_URL)
         time.sleep(3)
 
         ogretici_kapat(driver, wait)
 
         for i, okas in enumerate(okas_kodlari):
             if i > 0:
-                driver.get(EKAP_URL)
+                _sayfaya_git(driver, EKAP_URL)
                 time.sleep(3)
                 ogretici_kapat(driver, wait)
 
