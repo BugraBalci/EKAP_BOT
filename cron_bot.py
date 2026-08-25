@@ -3,7 +3,7 @@
 
 GUI (main.py) ve API (bot_runner.py) yollarına dokunmaz.
 Ortam değişkenleri: SENDER_MAIL, SENDER_PASSWORD, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
-İsteğe bağlı: SMTP_HOST, SMTP_PORT (varsayılan smtp.gmail.com:465 SSL), OKAS_KODU (virgülle, yoksa TARANACAK_OKAS_KODLARI), HARIC_KELIME, SAYFA_LIMITI
+İsteğe bağlı: SMTP_HOST, SMTP_PORT (varsayılan smtp.gmail.com:465 SSL), OKAS_KODU (virgülle, yoksa TARANACAK_OKAS_KODLARI), HARIC_KELIME, SAYFA_LIMITI (varsayılan 3, en fazla 5)
 """
 
 from __future__ import annotations
@@ -60,6 +60,8 @@ TARANACAK_OKAS_KODLARI = [
 DEFAULT_HARIC = "lisans, araba"
 KAYIT_DOSYASI = "ekap_arayuz_sonuclar.csv"
 KODLAR_ARASI_BEKLEME_SN = 4
+DEFAULT_SAYFA_LIMITI = 3
+MAX_SAYFA_LIMITI = 5
 TZ = ZoneInfo("Europe/Istanbul")
 
 TABLO_SUTUNLARI = ("Kurum", "İşin Adı", "İKN", "İl / Saat", "Link")
@@ -90,11 +92,14 @@ def _haric_kelime() -> str:
 
 
 def _sayfa_limiti() -> int:
-    raw = (os.environ.get("SAYFA_LIMITI") or "0").strip()
+    raw = (os.environ.get("SAYFA_LIMITI") or str(DEFAULT_SAYFA_LIMITI)).strip()
     try:
-        return int(raw)
+        n = int(raw)
     except ValueError:
-        return 0
+        n = DEFAULT_SAYFA_LIMITI
+    if n <= 0:
+        return DEFAULT_SAYFA_LIMITI
+    return min(n, MAX_SAYFA_LIMITI)
 
 
 def _load_dotenv() -> None:
@@ -339,7 +344,9 @@ def ekap_tara(okas_kodlari: Sequence[str], haric: str, limit: int) -> tuple[List
                 arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50")
                 time.sleep(5)
 
-                kayitlar = verileri_cek(driver, wait, limit, dislanacak_kelime=haric)
+                kayitlar = verileri_cek(
+                    driver, wait, maksimum_sayfa=limit, dislanacak_kelime=haric
+                )
                 eklenen = 0
                 for kayit in kayitlar:
                     anahtar = _kayit_anahtari(kayit)
