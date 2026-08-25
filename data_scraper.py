@@ -25,18 +25,28 @@ def _ihale_link(ikn):
     return f"https://ekapv2.kik.gov.tr/ekap/search/{ikn.replace('/', '_')}"
 
 
-def verileri_cek(driver, wait, maksimum_sayfa, dislanacak_kelime="lisans"):
+def verileri_cek(driver, wait, maksimum_sayfa=3, dislanacak_kelime="lisans"):
     ihale_verileri = []
     sayfa_sayaci = 1
     toplam_eklenen = 0
     toplam_atlanan = 0
+    try:
+        maksimum_sayfa = int(maksimum_sayfa) if maksimum_sayfa else 3
+    except (TypeError, ValueError):
+        maksimum_sayfa = 3
+    if maksimum_sayfa <= 0:
+        maksimum_sayfa = 3
 
     kelime_listesi = [tr_lower(k.strip()) for k in dislanacak_kelime.split(",") if k.strip()]
-    print(f"📊 Veri çekme başladı. Kesin olarak elenecek kelimeler: {kelime_listesi}")
+    print(f"📊 Veri çekme başladı. Hedef: En fazla {maksimum_sayfa} sayfa.")
+    print(f"📊 Kesin olarak elenecek kelimeler: {kelime_listesi}")
 
     while True:
-        if maksimum_sayfa and maksimum_sayfa > 0 and sayfa_sayaci > maksimum_sayfa:
-            print(f"🛑 Belirtilen sayfa limitine ({maksimum_sayfa}) ulaşıldı.")
+        if sayfa_sayaci > maksimum_sayfa:
+            print(
+                f"🛑 Belirtilen sayfa limitine ({maksimum_sayfa}) ulaşıldı. "
+                "Tarama tamamlanıyor."
+            )
             break
 
         print(f"📄 {sayfa_sayaci}. sayfanın verileri çekiliyor...")
@@ -105,6 +115,13 @@ def verileri_cek(driver, wait, maksimum_sayfa, dislanacak_kelime="lisans"):
                     }
                 )
                 toplam_eklenen += 1
+
+            if sayfa_sayaci >= maksimum_sayfa:
+                print(
+                    f"🏁 Sayfa sınırına ({maksimum_sayfa}) ulaşıldı, "
+                    "diğer sayfaya geçilmiyor."
+                )
+                break
 
             try:
                 next_btn = driver.find_element(

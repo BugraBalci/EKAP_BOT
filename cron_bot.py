@@ -345,7 +345,7 @@ def ekap_tara(okas_kodlari: Sequence[str], haric: str, limit: int) -> tuple[List
                 time.sleep(5)
 
                 kayitlar = verileri_cek(
-                    driver, wait, maksimum_sayfa=limit, dislanacak_kelime=haric
+                    driver, wait, maksimum_sayfa=3, dislanacak_kelime=haric
                 )
                 eklenen = 0
                 for kayit in kayitlar:
@@ -396,7 +396,7 @@ def ana_gorev() -> int:
 
     print(
         f"🚀 EKAP cron başladı | {len(okas_kodlari)} OKAS kodu | "
-        f"hariç={haric} | limit={limit}"
+        f"hariç={haric} | maksimum_sayfa=3"
     )
     print(f"   Kodlar: {okas_etiket}")
 
