@@ -59,7 +59,6 @@ TARANACAK_OKAS_KODLARI = [
 ]
 DEFAULT_HARIC = "lisans, araba"
 KAYIT_DOSYASI = "ekap_arayuz_sonuclar.csv"
-KODLAR_ARASI_BEKLEME_SN = 4
 DEFAULT_SAYFA_LIMITI = 3
 MAX_SAYFA_LIMITI = 5
 TZ = ZoneInfo("Europe/Istanbul")
@@ -324,25 +323,20 @@ def ekap_tara(okas_kodlari: Sequence[str], haric: str, limit: int) -> tuple[List
 
     try:
         driver, wait = tarayiciyi_baslat()
-        _sayfaya_git(driver, EKAP_URL)
-        time.sleep(3)
-        ogretici_kapat(driver, wait)
 
-        for i, okas in enumerate(okas_kodlari):
-            if i > 0:
-                print(f"⏸️ Sonraki OKAS için {KODLAR_ARASI_BEKLEME_SN} sn bekleniyor...")
-                time.sleep(KODLAR_ARASI_BEKLEME_SN)
+        for index, okas in enumerate(okas_kodlari, start=1):
+            print(f"\n🔎 [{index}/{len(okas_kodlari)}] OKAS {okas} taranıyor...")
+            try:
+                # Her kod için sayfayı sıfırla ve DOM'u temizle
+                # (önceki Angular/DevExpress overlay'leri element not interactable üretir)
+                print("🔄 Sayfa sıfırlanıyor (Angular/DevExpress overlay temizliği)...")
                 _sayfaya_git(driver, EKAP_URL)
-                time.sleep(2)
+                time.sleep(3)
                 ogretici_kapat(driver, wait)
 
-            print(f"🔎 [{i + 1}/{len(okas_kodlari)}] OKAS {okas} taranıyor...")
-            try:
                 okas_kodu_sec(driver, wait, okas)
-                print("⏳ EKAP sisteminin OKAS kodunu algılaması bekleniyor...")
-                time.sleep(3)
+                time.sleep(2)
                 arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50")
-                time.sleep(5)
 
                 kayitlar = verileri_cek(
                     driver, wait, maksimum_sayfa=3, dislanacak_kelime=haric
@@ -361,7 +355,7 @@ def ekap_tara(okas_kodlari: Sequence[str], haric: str, limit: int) -> tuple[List
                 )
             except Exception as e:
                 msg = f"{okas}: {type(e).__name__}: {e}"
-                print(f"⚠️ OKAS taraması atlandı — {msg}")
+                print(f"⚠️ OKAS {okas} sırasında hata oluştu, bir sonrakine geçiliyor: {e}")
                 hatalar.append(msg)
                 continue
     finally:
