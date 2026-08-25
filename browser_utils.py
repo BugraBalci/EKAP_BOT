@@ -31,6 +31,7 @@ def tarayiciyi_baslat():
     options.add_argument("--disable-extensions")
     options.add_argument("--blink-settings=imagesEnabled=false")
     options.add_argument("--window-size=1920,1080")
+    options.add_argument("--start-maximized")
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_argument(f"--user-agent={DEFAULT_USER_AGENT}")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
@@ -53,10 +54,14 @@ def tarayiciyi_baslat():
         )
 
     driver.set_page_load_timeout(40)
+    try:
+        driver.set_window_size(1920, 1080)
+    except Exception:
+        pass
     driver.execute_script(
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
     )
 
-    print("🖥️ Headless Chrome 1920x1080 (eager, görselsiz) başarıyla açıldı.")
+    print("🖥️ Headless Chrome 1920x1080 (eager, maximized, görselsiz) başarıyla açıldı.")
     wait = WebDriverWait(driver, 25)
     return driver, wait
