@@ -3,7 +3,7 @@
 
 GUI (main.py) ve API (bot_runner.py) yollarına dokunmaz.
 Ortam değişkenleri: SENDER_MAIL, SENDER_PASSWORD, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
-İsteğe bağlı: SMTP_HOST, SMTP_PORT (varsayılan smtp.gmail.com:465 SSL), OKAS_KODU (virgülle, yoksa TARANACAK_OKAS_KODLARI), HARIC_KELIME, SAYFA_LIMITI (varsayılan 3, en fazla 5)
+İsteğe bağlı: SMTP_HOST, SMTP_PORT (varsayılan smtp.gmail.com:465 SSL), OKAS_KODU (virgülle, yoksa TARANACAK_OKAS_KODLARI), HARIC_KELIME, SAYFA_LIMITI (varsayılan 2, en fazla 3)
 """
 
 from __future__ import annotations
@@ -59,8 +59,8 @@ TARANACAK_OKAS_KODLARI = [
 ]
 DEFAULT_HARIC = "lisans, araba"
 KAYIT_DOSYASI = "ekap_arayuz_sonuclar.csv"
-DEFAULT_SAYFA_LIMITI = 3
-MAX_SAYFA_LIMITI = 5
+DEFAULT_SAYFA_LIMITI = 2
+MAX_SAYFA_LIMITI = 3
 TZ = ZoneInfo("Europe/Istanbul")
 
 TABLO_SUTUNLARI = ("Kurum", "İşin Adı", "İKN", "İl / Saat", "Link")
@@ -308,7 +308,7 @@ def _sayfaya_git(driver, url: str) -> None:
     except TimeoutException:
         print("⚠️ Sayfa yükleme zaman aşımı; mevcut DOM ile devam ediliyor.")
     try:
-        WebDriverWait(driver, 15).until(
+        WebDriverWait(driver, 8).until(
             lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
         )
     except TimeoutException:
@@ -323,23 +323,20 @@ def ekap_tara(okas_kodlari: Sequence[str], haric: str, limit: int) -> tuple[List
 
     try:
         driver, wait = tarayiciyi_baslat()
+        _sayfaya_git(driver, EKAP_URL)
+        time.sleep(1.5)
 
         for index, okas in enumerate(okas_kodlari, start=1):
             print(f"\n🔎 [{index}/{len(okas_kodlari)}] OKAS {okas} taranıyor...")
             try:
-                # Her kod için sayfayı sıfırla ve DOM'u temizle
-                # (önceki Angular/DevExpress overlay'leri element not interactable üretir)
-                print("🔄 Sayfa sıfırlanıyor (Angular/DevExpress overlay temizliği)...")
-                _sayfaya_git(driver, EKAP_URL)
-                time.sleep(3)
                 ogretici_kapat(driver, wait)
 
                 okas_kodu_sec(driver, wait, okas)
-                time.sleep(2)
+                time.sleep(1.5)
                 arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50")
 
                 kayitlar = verileri_cek(
-                    driver, wait, maksimum_sayfa=3, dislanacak_kelime=haric
+                    driver, wait, maksimum_sayfa=limit, dislanacak_kelime=haric
                 )
                 eklenen = 0
                 for kayit in kayitlar:
@@ -357,7 +354,14 @@ def ekap_tara(okas_kodlari: Sequence[str], haric: str, limit: int) -> tuple[List
                 msg = f"{okas}: {type(e).__name__}: {e}"
                 print(f"⚠️ OKAS {okas} sırasında hata oluştu, bir sonrakine geçiliyor: {e}")
                 hatalar.append(msg)
-                continue
+            finally:
+                if index < len(okas_kodlari):
+                    print("🔄 Sayfa sıfırlanıyor (Angular/DevExpress overlay temizliği)...")
+                    try:
+                        _sayfaya_git(driver, EKAP_URL)
+                        time.sleep(1.5)
+                    except Exception as reset_e:
+                        print(f"⚠️ Sayfa sıfırlama atlandı: {reset_e}")
     finally:
         if driver is not None:
             driver.quit()
@@ -390,7 +394,7 @@ def ana_gorev() -> int:
 
     print(
         f"🚀 EKAP cron başladı | {len(okas_kodlari)} OKAS kodu | "
-        f"hariç={haric} | maksimum_sayfa=3"
+        f"hariç={haric} | maksimum_sayfa={limit}"
     )
     print(f"   Kodlar: {okas_etiket}")
 
@@ -424,6 +428,7 @@ def ana_gorev() -> int:
     if kod_hatalari:
         ozet += f" {len(kod_hatalari)} kod atlandı."
 
+    print("📧 Tüm OKAS taraması bitti; tekilleştirilmiş bülten SMTP_SSL:465 ile hemen gönderiliyor.")
     if not veriler:
         _bilgilendirme_gonder(
             konu=f"EKAP Sabah Bülteni — ihale bulunamadı ({tarih})",

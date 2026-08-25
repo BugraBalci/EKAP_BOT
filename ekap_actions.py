@@ -128,7 +128,7 @@ def _gorunur_overlay_var(driver) -> bool:
     return False
 
 
-def _ogretici_ve_backdrop_kaybolsun(driver, timeout=12):
+def _ogretici_ve_backdrop_kaybolsun(driver, timeout=4):
     """Öğretici pencere ve arka plan backdrop'unun DOM'dan/ekrandan inmesini bekle."""
     try:
         WebDriverWait(driver, timeout).until(lambda d: not _gorunur_overlay_var(d))
@@ -191,7 +191,7 @@ def okas_kodu_sec(driver, wait, okas_kodu):
     print(f"📂 'OKAS Kodu Seç' menüsü açılıyor ve '{okas_kodu}' aranıyor...")
     try:
         ogretici_kapat(driver, wait)
-        time.sleep(1)
+        time.sleep(0.5)
 
         okas_btn_xpath = (
             "//div[contains(@class, 'dx-button-content') and contains(., 'OKAS Kodu Seç')] "
@@ -199,7 +199,7 @@ def okas_kodu_sec(driver, wait, okas_kodu):
             "| //button[contains(., 'OKAS')]"
         )
         _bekle_ve_tikla(driver, wait, (By.XPATH, okas_btn_xpath), "OKAS Kodu Seç")
-        time.sleep(2)
+        time.sleep(1.5)
 
         arama_xpath = (
             "//div[contains(@class,'dx-overlay-content') or contains(@class,'dx-popup')]"
@@ -207,7 +207,7 @@ def okas_kodu_sec(driver, wait, okas_kodu):
             " | //input[@aria-label='Search in the tree list']"
         )
         _bekle_ve_yaz(driver, wait, (By.XPATH, arama_xpath), okas_kodu, "OKAS arama kutusu")
-        time.sleep(2)
+        time.sleep(1.5)
 
         checkbox_xpath = (
             f"(//*[@role='row' or self::tr][.//text()[contains(., '{okas_kodu}')]]"
@@ -219,7 +219,7 @@ def okas_kodu_sec(driver, wait, okas_kodu):
             "| //*[@aria-label='Satırı seç']"
         )
         _bekle_ve_tikla(driver, wait, (By.XPATH, checkbox_xpath), "OKAS checkbox")
-        time.sleep(1)
+        time.sleep(0.8)
 
         sec_xpath = (
             "//div[contains(@class, 'dx-overlay-content') or contains(@class,'dx-popup')]"
@@ -230,10 +230,10 @@ def okas_kodu_sec(driver, wait, okas_kodu):
             "| //p[contains(@class, 'detay-button-text')]"
         )
         _bekle_ve_tikla(driver, wait, (By.XPATH, sec_xpath), "Seç/Kaydet")
-        time.sleep(1)
+        time.sleep(0.8)
 
         try:
-            WebDriverWait(driver, 8).until(
+            WebDriverWait(driver, 5).until(
                 EC.invisibility_of_element_located(
                     (By.XPATH, "//input[@aria-label='Search in the tree list']")
                 )
@@ -243,7 +243,7 @@ def okas_kodu_sec(driver, wait, okas_kodu):
             driver.execute_script(
                 "document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));"
             )
-            time.sleep(1)
+            time.sleep(0.5)
 
         print(f"✅ OKAS kodu '{okas_kodu}' başarıyla seçildi.")
     except Exception as e:
@@ -254,7 +254,7 @@ def okas_kodu_sec(driver, wait, okas_kodu):
 def arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50"):
     print("🔍 'Filtrele' butonuna basılıyor, ihaleler getiriliyor...")
     try:
-        _ogretici_ve_backdrop_kaybolsun(driver, timeout=6)
+        _ogretici_ve_backdrop_kaybolsun(driver, timeout=3)
 
         filtrele_xpath = (
             "//button[@id='search-ihale'] "
@@ -262,19 +262,19 @@ def arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50"):
             "| //div[contains(@class,'dx-button-content') and contains(., 'Filtrele')]"
         )
         _bekle_ve_tikla(driver, wait, (By.XPATH, filtrele_xpath), "Filtrele")
-        time.sleep(6)
+        time.sleep(2)
 
         gosterim_xpath = (
             "//*[@title='Gösterilecek Kayıt Sayısı'] "
             "| //div[contains(@class,'dx-selectbox')][.//input or contains(., 'Kayıt')]"
         )
         _bekle_ve_tikla(driver, wait, (By.XPATH, gosterim_xpath), "Gösterim kutusu")
-        time.sleep(1)
+        time.sleep(0.8)
 
         elli_xpath = (
             f"//div[contains(@class, 'dx-list-item-content') and normalize-space()='{gosterim_sayisi}']"
         )
         _bekle_ve_tikla(driver, wait, (By.XPATH, elli_xpath), f"Gösterim {gosterim_sayisi}")
-        time.sleep(3)
+        time.sleep(1.5)
     except Exception as e:
         print(f"⚠️ Arama veya gösterim ayarında hata: {e}")
