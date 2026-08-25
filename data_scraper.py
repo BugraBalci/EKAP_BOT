@@ -25,6 +25,35 @@ def _ihale_link(ikn):
     return f"https://ekapv2.kik.gov.tr/ekap/search/{ikn.replace('/', '_')}"
 
 
+def _kartlar(driver):
+    kartlar = driver.find_elements(By.XPATH, "//ihale-liste-item")
+    if kartlar:
+        return kartlar
+    return driver.find_elements(By.XPATH, "//div[contains(@class, 'pc-card')]")
+
+
+def _durum_acik_mi(durum_text, kart_metni=""):
+    """Kartın durum etiketi kapalıysa ele. Etiket yoksa UI filtresine güven."""
+    _ = kart_metni
+    metin = tr_lower((durum_text or "").strip())
+    if not metin:
+        return True
+    kapali = (
+        "iptal",
+        "sonuçlandı",
+        "sonuclandi",
+        "sözleşme imzalandı",
+        "sozlesme imzalandi",
+        "teklifler değerlendiriliyor",
+        "teklifler degerlendiriliyor",
+        "yayımlanmamış",
+        "yayimlanmamis",
+    )
+    if any(k in metin for k in kapali):
+        return False
+    return True
+
+
 def verileri_cek(driver, wait, maksimum_sayfa=2, dislanacak_kelime="lisans"):
     ihale_verileri = []
     toplam_eklenen = 0
@@ -45,9 +74,7 @@ def verileri_cek(driver, wait, maksimum_sayfa=2, dislanacak_kelime="lisans"):
         time.sleep(1.5)
 
         try:
-            ihale_kartlari = driver.find_elements(
-                By.XPATH, "//ihale-liste-item | //div[contains(@class, 'pc-card')]"
-            )
+            ihale_kartlari = _kartlar(driver)
 
             if not ihale_kartlari:
                 print(f"⚠️ {sayfa_sayaci}. sayfada hiç ihale kartı bulunamadı.")
@@ -59,11 +86,15 @@ def verileri_cek(driver, wait, maksimum_sayfa=2, dislanacak_kelime="lisans"):
                     ihale_elem = kart.find_elements(By.CSS_SELECTOR, ".ihale")
                     ikn_elem = kart.find_elements(By.CSS_SELECTOR, ".ikn")
                     ilsaat_elem = kart.find_elements(By.CSS_SELECTOR, ".il-saat")
+                    durum_elem = kart.find_elements(
+                        By.CSS_SELECTOR, ".durum, .ihale-durum, .status, .ihaleDurum"
+                    )
 
                     kurum = idare_elem[0].text.strip() if idare_elem else "-"
                     ihale_adi = ihale_elem[0].text.strip() if ihale_elem else ""
                     ikn = ikn_elem[0].text.strip() if ikn_elem else ""
                     il_saat = ilsaat_elem[0].text.strip() if ilsaat_elem else ""
+                    durum_text = durum_elem[0].text.strip() if durum_elem else ""
 
                     metin = f"{kurum} {ihale_adi} {ikn} {il_saat}".strip()
                 except Exception:
@@ -72,8 +103,16 @@ def verileri_cek(driver, wait, maksimum_sayfa=2, dislanacak_kelime="lisans"):
                     ihale_adi = metin
                     ikn = ""
                     il_saat = ""
+                    durum_text = ""
 
                 if not metin:
+                    continue
+
+                if not _durum_acik_mi(durum_text, metin):
+                    toplam_atlanan += 1
+                    print(
+                        f"🚫 KAPALI: {(ihale_adi or metin)[:80]} | {durum_text or 'kapalı durum'}"
+                    )
                     continue
 
                 metin_alt = tr_lower(metin)
@@ -101,6 +140,7 @@ def verileri_cek(driver, wait, maksimum_sayfa=2, dislanacak_kelime="lisans"):
                         "İşin Adı": ihale_adi if ihale_adi else metin,
                         "İKN": ikn or "-",
                         "İl / Saat": il_saat,
+                        "Durum": durum_text or "Teklif Vermeye Açık",
                         "Link": _ihale_link(ikn),
                         "İhaleyi Veren Kurum": kurum,
                         "İhale Detayları": detay,

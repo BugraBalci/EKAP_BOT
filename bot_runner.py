@@ -9,7 +9,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 from browser_utils import tarayiciyi_baslat
 from data_scraper import verileri_cek
-from ekap_actions import arama_yap_ve_gosterimi_ayarla, ogretici_kapat, okas_kodu_sec
+from ekap_actions import (
+    _arama_formu_hazir,
+    arama_yap_ve_gosterimi_ayarla,
+    durum_sec,
+    ogretici_kapat,
+    okas_kodu_sec,
+)
 
 ROOT = Path(__file__).resolve().parent
 EKAP_URL = "https://ekapv2.kik.gov.tr/ekap/search"
@@ -89,7 +95,7 @@ def _sayfaya_git(driver, url: str) -> None:
 
 
 def selenium_tara(
-    okas_kodlari: Sequence[str], haric: str, limit: int
+    okas_kodlari: Sequence[str], haric: str, limit: int, durum: str = "Teklif Vermeye Açık"
 ) -> Tuple[List[Dict[str, str]], List[str]]:
     """Headless Chrome ile her OKAS kodunu ayrı tarar; İKN birleşim kümesi döner."""
     driver = None
@@ -100,13 +106,26 @@ def selenium_tara(
 
     try:
         driver, wait = tarayiciyi_baslat()
-        _sayfaya_git(driver, EKAP_URL)
-        time.sleep(1.5)
+        form_hazir = False
+        for deneme in range(1, 4):
+            _sayfaya_git(driver, EKAP_URL)
+            time.sleep(2)
+            try:
+                _arama_formu_hazir(driver, timeout=40)
+                form_hazir = True
+                break
+            except Exception as e:
+                print(f"⚠️ Arama formu yüklenmedi (deneme {deneme}/3): {e}")
+                if deneme < 3:
+                    print("🔄 EKAP sayfası yenileniyor...")
+        if not form_hazir:
+            raise RuntimeError("EKAP arama formu 3 denemede yüklenmedi.")
 
         for index, okas in enumerate(okas_kodlari, start=1):
             print(f"\n🔎 [{index}/{len(okas_kodlari)}] OKAS {okas} taranıyor...")
             try:
                 ogretici_kapat(driver, wait)
+                durum_sec(driver, wait, durum)
                 okas_kodu_sec(driver, wait, okas)
                 time.sleep(1.5)
                 arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50")
@@ -127,6 +146,16 @@ def selenium_tara(
                     f"(toplam benzersiz: {len(toplanan)})"
                 )
             except Exception as e:
+                try:
+                    driver.save_screenshot("ekap_hata_ekrani.png")
+                    src = driver.page_source or ""
+                    print("💾 Hata ekranı: ekap_hata_ekrani.png")
+                    print(
+                        f"   url={driver.current_url} title={driver.title!r} html_len={len(src)}"
+                    )
+                    Path("ekap_hata_ekrani.html").write_text(src[:80000], encoding="utf-8")
+                except Exception:
+                    pass
                 msg = f"{okas}: {type(e).__name__}: {e}"
                 print(f"⚠️ OKAS {okas} sırasında hata, bir sonrakine geçiliyor: {e}")
                 hatalar.append(msg)
@@ -155,15 +184,17 @@ def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
     if not roots:
         raise RuntimeError("OKAS kodu boş.")
 
-    _ = durum
     sayfa = _sayfa_limiti(limit)
+    durum = durum or "Teklif Vermeye Açık"
     print("🔎 EKAP taraması başlıyor (Selenium / headless Chrome)...")
     print(
-        f"   OKAS={', '.join(roots)} | açık liste | "
+        f"   OKAS={', '.join(roots)} | durum={durum} | "
         f"sayfa_limiti={sayfa} (API 401, tarayıcı yolu)"
     )
 
-    toplanan, hatalar = selenium_tara(roots, haric_kelime or "", sayfa)
+    toplanan, hatalar = selenium_tara(
+        roots, haric_kelime or "", sayfa, durum=durum
+    )
     if hatalar and not toplanan:
         raise RuntimeError(
             "Selenium taraması sonuç vermedi.\n" + "\n".join(hatalar)
