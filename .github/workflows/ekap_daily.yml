@@ -2,7 +2,7 @@
 # Secrets (Settings → Secrets and variables → Actions):
 #   SENDER_MAIL       → SMTP gönderen adres (ör. Gmail)
 #   SENDER_PASSWORD   → SMTP şifresi / Gmail uygulama şifresi
-#   RECEIVER_MAILS    → virgülle alıcılar (örn: a@x.com,b@y.com)
+#   EKAP_EMAIL_RECIPIENTS → virgülle alıcılar (örn: a@x.com,b@y.com)
 
 name: EKAP Daily Selenium Digest
 
@@ -40,5 +40,5 @@ jobs:
         env:
           SENDER_MAIL: ${{ secrets.SENDER_MAIL }}
           SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-          RECEIVER_MAILS: ${{ secrets.RECEIVER_MAILS }}
+          EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS }}
         run: python cron_bot.py

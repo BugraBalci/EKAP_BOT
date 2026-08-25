@@ -2,7 +2,7 @@
 """GitHub Actions / cron: Selenium ile EKAP tarama + SMTP sabah bülteni.
 
 GUI (main.py) ve API (bot_runner.py) yollarına dokunmaz.
-Ortam değişkenleri: SENDER_MAIL, SENDER_PASSWORD, RECEIVER_MAILS
+Ortam değişkenleri: SENDER_MAIL, SENDER_PASSWORD, EKAP_EMAIL_RECIPIENTS
 İsteğe bağlı: SMTP_HOST, SMTP_PORT, OKAS_KODU, HARIC_KELIME, SAYFA_LIMITI
 """
 
@@ -58,7 +58,7 @@ def _sayfa_limiti() -> int:
 
 
 def _alicilar() -> List[str]:
-    raw = os.environ.get("RECEIVER_MAILS") or ""
+    raw = os.environ.get("EKAP_EMAIL_RECIPIENTS") or ""
     return [x.strip() for x in raw.split(",") if x.strip() and "@" in x]
 
 
@@ -205,7 +205,7 @@ def mail_gonder(konu: str, html_govde: str, metin_govde: str) -> None:
     if not password:
         raise RuntimeError("SENDER_PASSWORD ortam değişkeni eksik.")
     if not alicilar:
-        raise RuntimeError("RECEIVER_MAILS ortam değişkeni eksik veya geçersiz.")
+        raise RuntimeError("EKAP_EMAIL_RECIPIENTS ortam değişkeni eksik veya geçersiz.")
 
     host = (os.environ.get("SMTP_HOST") or "smtp.gmail.com").strip()
     port = int((os.environ.get("SMTP_PORT") or "587").strip())
