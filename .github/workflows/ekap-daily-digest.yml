@@ -1,5 +1,5 @@
-# Eski API tabanlı özet (EKAP 401 verdiği için zamanlanmış koşu kapalı).
-# Günlük Selenium taraması: .github/workflows/ekap_daily.yml
+# Elle tetiklenen API özeti (Entropy MSA mail).
+# Zamanlanmış günlük bülten (SMTP): .github/workflows/ekap_daily.yml
 # Secrets (Settings → Secrets and variables → Actions):
 #   ENTROPY_EMAIL_API_KEY  → MSA API key
 #   EKAP_EMAIL_RECIPIENTS  → virgülle alıcılar (örn: a@x.com,b@y.com)

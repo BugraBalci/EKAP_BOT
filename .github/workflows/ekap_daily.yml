@@ -1,9 +1,9 @@
-# Her sabah 08:30 Türkiye (UTC+3) — Selenium / headless Chrome ile EKAP tarama.
+# Her sabah 08:30 Türkiye (UTC+3) — EKAP v2 API + SMTP sabah bülteni.
 # Secrets veya Variables (Settings → Secrets and variables → Actions):
 #   SENDER_MAIL, SENDER_PASSWORD
 #   EKAP_EMAIL_RECIPIENTS veya RECEIVER_MAILS → virgülle alıcılar
 
-name: EKAP Daily Selenium Digest
+name: EKAP Daily API Digest
 
 on:
   schedule:
@@ -14,32 +14,31 @@ on:
 jobs:
   scrape-and-mail:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       SENDER_MAIL: ${{ secrets.SENDER_MAIL || vars.SENDER_MAIL }}
       SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD || vars.SENDER_PASSWORD }}
       EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS || secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS }}
       RECEIVER_MAILS: ${{ secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS || secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS }}
-      SAYFA_LIMITI: "2"
+      SAYFA_LIMITI: "0"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.12.3"
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
-      - name: Install Google Chrome
+      - name: Clone ihale-mcp vendor
         run: |
-          set -euo pipefail
-          wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-          sudo apt-get update
-          sudo apt-get install -y /tmp/google-chrome.deb
-          google-chrome --version
-
-      - name: Install Python dependencies
-        run: pip install selenium webdriver-manager pandas
+          git clone --depth 1 https://github.com/saidsurucu/ihale-mcp vendor/ihale-mcp
+          uv sync --python 3.12 --directory vendor/ihale-mcp
 
       - name: Run EKAP cron bot
         run: python cron_bot.py

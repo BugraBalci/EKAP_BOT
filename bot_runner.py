@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -37,7 +38,7 @@ def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
             "Şunu çalıştır: git clone --depth 1 https://github.com/saidsurucu/ihale-mcp vendor/ihale-mcp"
         )
 
-    uv_bin = str(UV if UV.exists() else "uv")
+    uv_bin = str(UV) if UV.exists() else (shutil.which("uv") or "uv")
     cmd = [
         uv_bin,
         "run",

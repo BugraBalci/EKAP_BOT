@@ -11,6 +11,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+import httpx
+
 _VENDOR = Path(__file__).resolve().parent / "vendor" / "ihale-mcp"
 if str(_VENDOR) not in sys.path:
     sys.path.insert(0, str(_VENDOR))
@@ -89,10 +91,21 @@ def _yeniden_denenebilir(exc: BaseException) -> bool:
         return True
     name = type(exc).__name__.lower()
     metin = str(exc).lower()
-    return "timeout" in name or "connect" in name or "401" in metin or "unauthorized" in metin
+    anahtarlar = (
+        "timeout",
+        "connect",
+        "disconnect",
+        "reset",
+        "refused",
+        "protocol",
+        "401",
+        "unauthorized",
+        "temporarily",
+    )
+    return any(k in name or k in metin for k in anahtarlar)
 
 
-async def _istek_dene(coro_factory, *, deneme: int = 3, etiket: str = "EKAP"):
+async def _istek_dene(coro_factory, *, deneme: int = 5, etiket: str = "EKAP"):
     last: Optional[BaseException] = None
     for i in range(1, deneme + 1):
         try:
@@ -397,111 +410,160 @@ async def ara(okas: str, haric: str, sayfa_limiti: int, sayfa_boyutu: int = 50) 
     """
     from ihale_client import EKAPClient
 
-    client = EKAPClient()
-    haricler = kelime_listesi(haric)
-    roots = parse_okas_roots(okas)
-    bugun = date.today()
-    dun = bugun - timedelta(days=1)
-    hafta_baslangici = bugun - timedelta(days=bugun.weekday())
+    class SessionEKAPClient(EKAPClient):
+        """Tek httpx oturumu: önce /ekap/search cookie, sonra imzalı POST."""
 
-    tum_grup: List[List[Dict[str, str]]] = []
-    bugun_grup: List[List[Dict[str, str]]] = []
-    dun_grup: List[List[Dict[str, str]]] = []
-    hafta_grup: List[List[Dict[str, str]]] = []
+        def __init__(self) -> None:
+            super().__init__()
+            self._http: Optional[httpx.AsyncClient] = None
 
-    for root in roots:
-        okas_codes = await expand_okas_codes(client, root)
+        async def _oturum(self) -> httpx.AsyncClient:
+            if self._http is None:
+                ssl_context = self._create_ssl_context()
+                self._http = httpx.AsyncClient(
+                    timeout=30.0,
+                    verify=ssl_context,
+                    http2=False,
+                    follow_redirects=True,
+                    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+                )
+                try:
+                    await self._http.get(
+                        f"{self.base_url}/ekap/search",
+                        headers={
+                            "Accept": "text/html,application/xhtml+xml",
+                            "User-Agent": self.headers.get("User-Agent", ""),
+                        },
+                    )
+                    print("🍪 EKAP arama sayfası oturumu alındı.", file=sys.stderr, flush=True)
+                except Exception as e:
+                    print(f"⚠️ EKAP oturum ısınması atlandı: {e}", file=sys.stderr, flush=True)
+            return self._http
+
+        async def _make_request(self, endpoint: str, params: dict) -> dict:
+            http = await self._oturum()
+            request_headers = {**self.headers, **self._generate_security_headers()}
+            response = await http.post(
+                f"{self.base_url}{endpoint}",
+                json=params,
+                headers=request_headers,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        async def aclose(self) -> None:
+            if self._http is not None:
+                await self._http.aclose()
+                self._http = None
+
+    client = SessionEKAPClient()
+    try:
+        haricler = kelime_listesi(haric)
+        roots = parse_okas_roots(okas)
+        bugun = date.today()
+        dun = bugun - timedelta(days=1)
+        hafta_baslangici = bugun - timedelta(days=bugun.weekday())
+
+        tum_grup: List[List[Dict[str, str]]] = []
+        bugun_grup: List[List[Dict[str, str]]] = []
+        dun_grup: List[List[Dict[str, str]]] = []
+        hafta_grup: List[List[Dict[str, str]]] = []
+
+        for root in roots:
+            okas_codes = await expand_okas_codes(client, root)
+            print(
+                f"🔎 OKAS kökü {root} ayrı aranıyor (birleşim kümesi, kesişim değil)",
+                file=sys.stderr,
+                flush=True,
+            )
+            tum_grup.append(
+                await _sayfala(
+                    client,
+                    okas_codes,
+                    haricler,
+                    sayfa_limiti,
+                    sayfa_boyutu,
+                    ihale_baslangic=bugun,
+                    ilan_baslangic=None,
+                    etiket=f"acik+gelecek:{root}",
+                )
+            )
+            bugun_grup.append(
+                await _sayfala(
+                    client,
+                    okas_codes,
+                    haricler,
+                    sayfa_limiti,
+                    sayfa_boyutu,
+                    ihale_baslangic=bugun,
+                    ilan_baslangic=bugun,
+                    ilan_bitis=bugun,
+                    etiket=f"yeni-bugun:{root}",
+                )
+            )
+            dun_grup.append(
+                await _sayfala(
+                    client,
+                    okas_codes,
+                    haricler,
+                    sayfa_limiti,
+                    sayfa_boyutu,
+                    ihale_baslangic=bugun,
+                    ilan_baslangic=dun,
+                    ilan_bitis=dun,
+                    etiket=f"yeni-dun:{root}",
+                )
+            )
+            hafta_grup.append(
+                await _sayfala(
+                    client,
+                    okas_codes,
+                    haricler,
+                    sayfa_limiti,
+                    sayfa_boyutu,
+                    ihale_baslangic=bugun,
+                    ilan_baslangic=hafta_baslangici,
+                    ilan_bitis=bugun,
+                    etiket=f"yeni-bu-hafta:{root}",
+                )
+            )
+
+        tum = birlestir_satirlar(*tum_grup)
+        yeni_bugun = birlestir_satirlar(*bugun_grup)
+        yeni_dun = birlestir_satirlar(*dun_grup)
+        yeni_hafta_ham = birlestir_satirlar(*hafta_grup)
+
+        # Bu hafta listesi: bugün ve dün bloklarına girenleri ayıkla, İKN tekil kalsın.
+        gorulen: Set[str] = set()
+        for row in yeni_bugun + yeni_dun:
+            ikn = row.get("İKN") or ""
+            if ikn:
+                gorulen.add(ikn)
+
+        yeni_hafta: List[Dict[str, str]] = []
+        for row in yeni_hafta_ham:
+            ikn = row.get("İKN") or ""
+            if ikn in gorulen:
+                continue
+            gorulen.add(ikn)
+            yeni_hafta.append(row)
+
         print(
-            f"🔎 OKAS kökü {root} ayrı aranıyor (birleşim kümesi, kesişim değil)",
+            f"🔗 Birleşim: açık={len(tum)} bugün={len(yeni_bugun)} dün={len(yeni_dun)} "
+            f"hafta={len(yeni_hafta)} (kökler: {', '.join(roots)})",
             file=sys.stderr,
             flush=True,
         )
-        tum_grup.append(
-            await _sayfala(
-                client,
-                okas_codes,
-                haricler,
-                sayfa_limiti,
-                sayfa_boyutu,
-                ihale_baslangic=bugun,
-                ilan_baslangic=None,
-                etiket=f"acik+gelecek:{root}",
-            )
-        )
-        bugun_grup.append(
-            await _sayfala(
-                client,
-                okas_codes,
-                haricler,
-                sayfa_limiti,
-                sayfa_boyutu,
-                ihale_baslangic=bugun,
-                ilan_baslangic=bugun,
-                ilan_bitis=bugun,
-                etiket=f"yeni-bugun:{root}",
-            )
-        )
-        dun_grup.append(
-            await _sayfala(
-                client,
-                okas_codes,
-                haricler,
-                sayfa_limiti,
-                sayfa_boyutu,
-                ihale_baslangic=bugun,
-                ilan_baslangic=dun,
-                ilan_bitis=dun,
-                etiket=f"yeni-dun:{root}",
-            )
-        )
-        hafta_grup.append(
-            await _sayfala(
-                client,
-                okas_codes,
-                haricler,
-                sayfa_limiti,
-                sayfa_boyutu,
-                ihale_baslangic=bugun,
-                ilan_baslangic=hafta_baslangici,
-                ilan_bitis=bugun,
-                etiket=f"yeni-bu-hafta:{root}",
-            )
-        )
 
-    tum = birlestir_satirlar(*tum_grup)
-    yeni_bugun = birlestir_satirlar(*bugun_grup)
-    yeni_dun = birlestir_satirlar(*dun_grup)
-    yeni_hafta_ham = birlestir_satirlar(*hafta_grup)
-
-    # Bu hafta listesi: bugün ve dün bloklarına girenleri ayıkla, İKN tekil kalsın.
-    gorulen: Set[str] = set()
-    for row in yeni_bugun + yeni_dun:
-        ikn = row.get("İKN") or ""
-        if ikn:
-            gorulen.add(ikn)
-
-    yeni_hafta: List[Dict[str, str]] = []
-    for row in yeni_hafta_ham:
-        ikn = row.get("İKN") or ""
-        if ikn in gorulen:
-            continue
-        gorulen.add(ikn)
-        yeni_hafta.append(row)
-
-    print(
-        f"🔗 Birleşim: açık={len(tum)} bugün={len(yeni_bugun)} dün={len(yeni_dun)} "
-        f"hafta={len(yeni_hafta)} (kökler: {', '.join(roots)})",
-        file=sys.stderr,
-        flush=True,
-    )
-
-    return {
-        "okas": okas,
-        "tenders": tum,
-        "yeni_bugun": yeni_bugun,
-        "yeni_dun": yeni_dun,
-        "yeni_bu_hafta": yeni_hafta,
-    }
+        return {
+            "okas": okas,
+            "tenders": tum,
+            "yeni_bugun": yeni_bugun,
+            "yeni_dun": yeni_dun,
+            "yeni_bu_hafta": yeni_hafta,
+        }
+    finally:
+        await client.aclose()
 
 
 def main() -> None:
