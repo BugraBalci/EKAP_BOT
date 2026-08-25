@@ -3,7 +3,7 @@
 
 GUI (main.py) ve API (bot_runner.py) yollarına dokunmaz.
 Ortam değişkenleri: SENDER_MAIL, SENDER_PASSWORD, EKAP_EMAIL_RECIPIENTS
-İsteğe bağlı: SMTP_HOST, SMTP_PORT, OKAS_KODU, HARIC_KELIME, SAYFA_LIMITI
+İsteğe bağlı: SMTP_HOST, SMTP_PORT (varsayılan smtp.gmail.com:465 SSL), OKAS_KODU, HARIC_KELIME, SAYFA_LIMITI
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import traceback
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.utils import formataddr, parseaddr
+from email.utils import formataddr
 from typing import Dict, List, Sequence
 from zoneinfo import ZoneInfo
 
@@ -197,33 +197,30 @@ def bulten_metin(
 
 
 def mail_gonder(konu: str, html_govde: str, metin_govde: str) -> None:
-    sender = (os.environ.get("SENDER_MAIL") or "").strip()
-    password = os.environ.get("SENDER_PASSWORD") or ""
+    sender_mail = (os.environ.get("SENDER_MAIL") or "").strip()
+    sender_password = os.environ.get("SENDER_PASSWORD") or ""
     alicilar = _alicilar()
-    if not sender or "@" not in sender:
+    if not sender_mail or "@" not in sender_mail:
         raise RuntimeError("SENDER_MAIL ortam değişkeni eksik veya geçersiz.")
-    if not password:
+    if not sender_password:
         raise RuntimeError("SENDER_PASSWORD ortam değişkeni eksik.")
     if not alicilar:
         raise RuntimeError("EKAP_EMAIL_RECIPIENTS ortam değişkeni eksik veya geçersiz.")
 
     host = (os.environ.get("SMTP_HOST") or "smtp.gmail.com").strip()
-    port = int((os.environ.get("SMTP_PORT") or "587").strip())
+    port = int((os.environ.get("SMTP_PORT") or "465").strip())
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = konu
-    msg["From"] = formataddr(("EKAP Sabah Bülteni", sender))
+    msg["From"] = formataddr(("EKAP Sabah Bülteni", sender_mail))
     msg["To"] = ", ".join(alicilar)
     msg.attach(MIMEText(metin_govde, "plain", "utf-8"))
     msg.attach(MIMEText(html_govde, "html", "utf-8"))
 
-    print(f"📧 Mail gönderiliyor → {', '.join(alicilar)}")
-    with smtplib.SMTP(host, port, timeout=30) as smtp:
-        smtp.ehlo()
-        smtp.starttls()
-        smtp.ehlo()
-        smtp.login(parseaddr(sender)[1] or sender, password)
-        smtp.sendmail(sender, alicilar, msg.as_string())
+    print(f"📧 Mail gönderiliyor (SMTP_SSL {host}:{port}) → {', '.join(alicilar)}")
+    with smtplib.SMTP_SSL(host, port, timeout=30) as server:
+        server.login(sender_mail, sender_password)
+        server.send_message(msg)
     print("✅ Mail gönderildi.")
 
 
