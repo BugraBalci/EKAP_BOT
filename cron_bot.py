@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""GitHub Actions / cron: EKAP API tarama + SMTP sabah bülteni.
+"""GitHub Actions / cron: Selenium ile EKAP tarama + SMTP sabah bülteni.
 
-GUI (main.py) ile aynı yolu kullanır: bot_runner → ekap_api_search (ihale-mcp).
-Selenium / headless Chrome kullanılmaz.
+GUI (main.py) ile aynı yolu kullanır: bot_runner → headless Chrome.
+EKAP API 401 verdiği için ihale-mcp kullanılmaz.
 
 Ortam değişkenleri: SENDER_MAIL, SENDER_PASSWORD, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
 İsteğe bağlı: SMTP_HOST, SMTP_PORT (varsayılan smtp.gmail.com:465 SSL),
-OKAS_KODU (virgülle kök kodlar; API alt kodları genişletir),
-HARIC_KELIME, SAYFA_LIMITI (0 = tüm sayfalar).
+OKAS_KODU (virgülle kodlar), HARIC_KELIME, SAYFA_LIMITI (varsayılan 2, en fazla 3).
 """
 
 from __future__ import annotations
@@ -27,26 +26,15 @@ from zoneinfo import ZoneInfo
 
 from bot_runner import ekap_botunu_calistir, verileri_kaydet
 
-# Kök OKAS kodları (API her kökün alt başlıklarını genişletir).
-# Eski 25 yaprak kod bu ebeveynlerle kapsanır.
+# Selenium ağaç seçimi: ebeveyn kod işaretlenince alt başlıklar da gelir.
 TARANACAK_OKAS_KODLARI = [
     "48000000",
-    "32220000",
-    "32230000",
-    "32400000",
-    "32500000",
-    "64200000",
-    "72200000",
-    "72300000",
-    "72400000",
-    "72700000",
-    "72800000",
-    "72910000",
+    "31711000",
 ]
 DEFAULT_HARIC = "lisans, araba"
 KAYIT_DOSYASI = "ekap_arayuz_sonuclar.csv"
-DEFAULT_SAYFA_LIMITI = 0
-MAX_SAYFA_LIMITI = 20
+DEFAULT_SAYFA_LIMITI = 2
+MAX_SAYFA_LIMITI = 3
 TZ = ZoneInfo("Europe/Istanbul")
 
 TABLO_SUTUNLARI = ("Kurum", "İşin Adı", "İKN", "İl / Saat", "Link")
@@ -82,10 +70,8 @@ def _sayfa_limiti() -> int:
         n = int(raw)
     except ValueError:
         n = DEFAULT_SAYFA_LIMITI
-    if n < 0:
+    if n <= 0:
         return DEFAULT_SAYFA_LIMITI
-    if n == 0:
-        return 0
     return min(n, MAX_SAYFA_LIMITI)
 
 
@@ -229,7 +215,7 @@ def bulten_html(
             {hata_kutusu}
             {html_tablo(veriler)}
             <p style="margin:18px 0 0 0;color:#64748B;font-size:12px">
-              Bu bülten EKAP v2 API taramasından üretilmiştir (Selenium kullanılmaz).
+              Bu bülten GitHub Actions üzerindeki headless Chrome taramasından üretilmiştir.
             </p>
           </div>
         </div>
@@ -305,12 +291,13 @@ def mail_gonder(konu: str, html_govde: str, metin_govde: str) -> None:
 def ekap_tara(
     okas_kodlari: Sequence[str], haric: str, limit: int
 ) -> tuple[List[Dict[str, str]], List[str]]:
-    """GUI ile aynı API yolunu kullanır; kök kodlar virgülle tek seferde aranır."""
+    """GUI ile aynı Selenium yolunu kullanır; kök kodlar virgülle birleşim kümesi."""
     okas = ",".join(okas_kodlari)
-    print(f"🔎 EKAP API taraması (Selenium yok) | kökler={okas} | sayfa_limiti={limit}")
-    ham, _dosya, _meta = ekap_botunu_calistir(
+    print(f"🔎 EKAP Selenium taraması | kodlar={okas} | sayfa_limiti={limit}")
+    ham, _dosya, meta = ekap_botunu_calistir(
         okas, "Teklif Vermeye Açık", haric, limit
     )
+    hatalar = list((meta or {}).get("kod_hatalari") or [])
 
     toplanan: List[Dict[str, str]] = []
     gorulen = set()
@@ -323,8 +310,8 @@ def ekap_tara(
         toplanan.append(kayit)
 
     verileri_kaydet(toplanan, dosya_adi=KAYIT_DOSYASI)
-    print(f"✅ API birleşim: {len(ham)} ham, {len(toplanan)} benzersiz kayıt")
-    return toplanan, []
+    print(f"✅ Selenium birleşim: {len(ham)} ham, {len(toplanan)} benzersiz kayıt")
+    return toplanan, hatalar
 
 
 def _bilgilendirme_gonder(
@@ -348,10 +335,10 @@ def ana_gorev() -> int:
     haric = _haric_kelime()
     limit = _sayfa_limiti()
     tarih = _bugun().strftime("%d.%m.%Y")
-    limit_etiket = "tüm sayfalar" if limit == 0 else str(limit)
+    limit_etiket = str(limit)
 
     print(
-        f"🚀 EKAP cron başladı | {len(okas_kodlari)} OKAS kökü | "
+        f"🚀 EKAP cron başladı | {len(okas_kodlari)} OKAS kodu | "
         f"hariç={haric} | sayfa_limiti={limit_etiket}"
     )
     print(f"   Kodlar: {okas_etiket}")
@@ -365,7 +352,7 @@ def ana_gorev() -> int:
             _bilgilendirme_gonder(
                 konu=f"EKAP Sabah Bülteni — hata ({tarih})",
                 baslik="EKAP taraması başarısız",
-                ozet="Sabah cron çalıştı ancak EKAP API taraması tamamlanamadı.",
+                ozet="Sabah cron çalıştı ancak Selenium taraması tamamlanamadı.",
                 okas=okas_etiket,
                 veriler=[],
                 hata=hata,
@@ -380,13 +367,13 @@ def ana_gorev() -> int:
         hata_notu = "Atlanan OKAS kodları:\n" + "\n".join(f"- {x}" for x in kod_hatalari)
 
     ozet = (
-        f"{len(okas_kodlari)} OKAS kökü tarandı (alt kodlar API'de genişletildi). "
+        f"{len(okas_kodlari)} OKAS kodu tarandı (headless Chrome). "
         f"Tabloda {len(veriler)} benzersiz ihale yer alıyor."
     )
     if kod_hatalari:
         ozet += f" {len(kod_hatalari)} kod atlandı."
 
-    print("📧 API taraması bitti; tekilleştirilmiş bülten SMTP_SSL:465 ile hemen gönderiliyor.")
+    print("📧 Selenium taraması bitti; tekilleştirilmiş bülten SMTP_SSL:465 ile hemen gönderiliyor.")
     if not veriler:
         _bilgilendirme_gonder(
             konu=f"EKAP Sabah Bülteni — ihale bulunamadı ({tarih})",
@@ -407,7 +394,7 @@ def ana_gorev() -> int:
         veriler=veriler,
         hata=hata_notu,
     )
-    print(f"✅ Bülten gönderildi ({len(veriler)} benzersiz kayıt, {len(okas_kodlari)} OKAS kökü).")
+    print(f"✅ Bülten gönderildi ({len(veriler)} benzersiz kayıt, {len(okas_kodlari)} OKAS kodu).")
     return 0
 
 

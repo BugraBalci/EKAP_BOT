@@ -1,10 +1,10 @@
-# Elle tetiklenen API özeti (Entropy MSA mail).
+# Elle tetiklenen özet (Entropy MSA mail) — Selenium / headless Chrome.
 # Zamanlanmış günlük bülten (SMTP): .github/workflows/ekap_daily.yml
 # Secrets (Settings → Secrets and variables → Actions):
 #   ENTROPY_EMAIL_API_KEY  → MSA API key
 #   EKAP_EMAIL_RECIPIENTS  → virgülle alıcılar (örn: a@x.com,b@y.com)
 
-name: EKAP Daily Digest (API, manual)
+name: EKAP Daily Digest (Selenium, manual)
 
 on:
   workflow_dispatch:
@@ -21,25 +21,26 @@ on:
 jobs:
   send-digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          version: "0.12.3"
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.10"
 
-      - name: Clone ihale-mcp vendor
+      - name: Install Google Chrome
         run: |
-          git clone --depth 1 https://github.com/saidsurucu/ihale-mcp vendor/ihale-mcp
-          uv sync --python 3.12 --directory vendor/ihale-mcp
+          set -euo pipefail
+          wget -q -O /tmp/google-chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get update
+          sudo apt-get install -y /tmp/google-chrome.deb
+          google-chrome --version
+
+      - name: Install Python dependencies
+        run: pip install selenium webdriver-manager pandas
 
       - name: Send daily digest
         env:
@@ -52,7 +53,7 @@ jobs:
           OKAS="${{ github.event.inputs.okas }}"
           OKAS="${OKAS:-48000000,31711000}"
           if [ -n "${TO}" ]; then
-            python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --to "$TO"
+            python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 2 --to "$TO"
           else
-            python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba"
+            python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 2
           fi

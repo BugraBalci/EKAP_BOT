@@ -39,7 +39,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="EKAP günlük özet maili")
     parser.add_argument("--okas", default="48000000,31711000")
     parser.add_argument("--haric", default="lisans, araba")
-    parser.add_argument("--limit", type=int, default=0, help="0 = tüm sayfalar")
+    parser.add_argument("--limit", type=int, default=2, help="Selenium sayfa limiti (1-3)")
     parser.add_argument("--to", default="", help="virgülle alıcılar")
     args = parser.parse_args()
 

@@ -40,7 +40,7 @@ class EkapBotApp:
         self.var_tum_sayfalar = tk.BooleanVar(value=True)
         self.chk_tum_sayfalar = tk.Checkbutton(
             self.root,
-            text="Tüm teklife açık sonuçları getir (OKAS alt kodları dahil)",
+            text="Tüm teklife açık sonuçları getir (sayfa limiti kapalı; Selenium en fazla 3 sayfa)",
             variable=self.var_tum_sayfalar,
             font=("Arial", 9, "italic"),
             command=self.tum_sayfalar_degisti,
