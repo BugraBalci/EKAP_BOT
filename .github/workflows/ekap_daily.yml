@@ -14,7 +14,7 @@ on:
 jobs:
   scrape-and-mail:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
     env:
       SENDER_MAIL: ${{ secrets.SENDER_MAIL || vars.SENDER_MAIL }}
       SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD || vars.SENDER_PASSWORD }}

@@ -3,7 +3,7 @@
 
 GUI (main.py) ve API (bot_runner.py) yollarına dokunmaz.
 Ortam değişkenleri: SENDER_MAIL, SENDER_PASSWORD, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
-İsteğe bağlı: SMTP_HOST, SMTP_PORT (varsayılan smtp.gmail.com:465 SSL), OKAS_KODU, HARIC_KELIME, SAYFA_LIMITI
+İsteğe bağlı: SMTP_HOST, SMTP_PORT (varsayılan smtp.gmail.com:465 SSL), OKAS_KODU (virgülle, yoksa TARANACAK_OKAS_KODLARI), HARIC_KELIME, SAYFA_LIMITI
 """
 
 from __future__ import annotations
@@ -30,9 +30,36 @@ from data_scraper import verileri_cek, verileri_kaydet
 from ekap_actions import arama_yap_ve_gosterimi_ayarla, ogretici_kapat, okas_kodu_sec
 
 EKAP_URL = "https://ekapv2.kik.gov.tr/ekap/search"
-DEFAULT_OKAS = "48000000"
+TARANACAK_OKAS_KODLARI = [
+    "48000000",
+    "32230000",
+    "32220000",
+    "32510000",
+    "32524000",
+    "32552420",
+    "32552110",
+    "32552430",
+    "32573000",
+    "32420000",
+    "32410000",
+    "32430000",
+    "64215000",
+    "64212000",
+    "64216210",
+    "64216100",
+    "64216200",
+    "64216120",
+    "64216110",
+    "72700000",
+    "72200000",
+    "72400000",
+    "72300000",
+    "72800000",
+    "72910000",
+]
 DEFAULT_HARIC = "lisans, araba"
 KAYIT_DOSYASI = "ekap_arayuz_sonuclar.csv"
+KODLAR_ARASI_BEKLEME_SN = 4
 TZ = ZoneInfo("Europe/Istanbul")
 
 TABLO_SUTUNLARI = ("Kurum", "İşin Adı", "İKN", "İl / Saat", "Link")
@@ -43,8 +70,19 @@ def _bugun() -> datetime:
 
 
 def _okas_kodlari() -> List[str]:
-    raw = (os.environ.get("OKAS_KODU") or DEFAULT_OKAS).strip()
-    return [x.strip() for x in raw.split(",") if x.strip()]
+    raw = (os.environ.get("OKAS_KODU") or "").strip()
+    if raw:
+        return [x.strip() for x in raw.split(",") if x.strip()]
+    return list(TARANACAK_OKAS_KODLARI)
+
+
+def _kayit_anahtari(kayit: Dict[str, str]) -> str:
+    ikn = (kayit.get("İKN") or "").strip()
+    if ikn and ikn != "-":
+        return f"ikn:{ikn}"
+    kurum = (kayit.get("Kurum") or kayit.get("İhaleyi Veren Kurum") or "").strip()
+    ad = (kayit.get("İşin Adı") or kayit.get("İhale Detayları") or "").strip()
+    return f"kurum:{kurum}|ad:{ad}"
 
 
 def _haric_kelime() -> str:
@@ -273,44 +311,58 @@ def _sayfaya_git(driver, url: str) -> None:
         print("⚠️ document.readyState beklenirken zaman aşımı; devam ediliyor.")
 
 
-def ekap_tara(okas_kodlari: Sequence[str], haric: str, limit: int) -> List[Dict[str, str]]:
+def ekap_tara(okas_kodlari: Sequence[str], haric: str, limit: int) -> tuple[List[Dict[str, str]], List[str]]:
     driver = None
     toplanan: List[Dict[str, str]] = []
     gorulen = set()
+    hatalar: List[str] = []
 
     try:
         driver, wait = tarayiciyi_baslat()
         _sayfaya_git(driver, EKAP_URL)
         time.sleep(3)
-
         ogretici_kapat(driver, wait)
 
         for i, okas in enumerate(okas_kodlari):
             if i > 0:
+                print(f"⏸️ Sonraki OKAS için {KODLAR_ARASI_BEKLEME_SN} sn bekleniyor...")
+                time.sleep(KODLAR_ARASI_BEKLEME_SN)
                 _sayfaya_git(driver, EKAP_URL)
-                time.sleep(3)
+                time.sleep(2)
                 ogretici_kapat(driver, wait)
 
-            okas_kodu_sec(driver, wait, okas)
-            print("⏳ EKAP sisteminin OKAS kodunu algılaması bekleniyor...")
-            time.sleep(3)
-            arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50")
-            time.sleep(5)
+            print(f"🔎 [{i + 1}/{len(okas_kodlari)}] OKAS {okas} taranıyor...")
+            try:
+                okas_kodu_sec(driver, wait, okas)
+                print("⏳ EKAP sisteminin OKAS kodunu algılaması bekleniyor...")
+                time.sleep(3)
+                arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50")
+                time.sleep(5)
 
-            kayitlar = verileri_cek(driver, wait, limit, dislanacak_kelime=haric)
-            for kayit in kayitlar:
-                anahtar = (kayit.get("İKN") or kayit.get("İhale Detayları") or "").strip()
-                if anahtar and anahtar in gorulen:
-                    continue
-                if anahtar:
+                kayitlar = verileri_cek(driver, wait, limit, dislanacak_kelime=haric)
+                eklenen = 0
+                for kayit in kayitlar:
+                    anahtar = _kayit_anahtari(kayit)
+                    if not anahtar or anahtar in gorulen:
+                        continue
                     gorulen.add(anahtar)
-                toplanan.append(kayit)
+                    toplanan.append(kayit)
+                    eklenen += 1
+                print(
+                    f"✅ OKAS {okas}: {len(kayitlar)} kayıt, {eklenen} yeni "
+                    f"(toplam benzersiz: {len(toplanan)})"
+                )
+            except Exception as e:
+                msg = f"{okas}: {type(e).__name__}: {e}"
+                print(f"⚠️ OKAS taraması atlandı — {msg}")
+                hatalar.append(msg)
+                continue
     finally:
         if driver is not None:
             driver.quit()
 
     verileri_kaydet(toplanan, dosya_adi=KAYIT_DOSYASI)
-    return toplanan
+    return toplanan, hatalar
 
 
 def _bilgilendirme_gonder(
@@ -327,7 +379,7 @@ def _bilgilendirme_gonder(
     mail_gonder(konu, html_govde, metin)
 
 
-def main() -> int:
+def ana_gorev() -> int:
     _load_dotenv()
     okas_kodlari = _okas_kodlari()
     okas_etiket = ", ".join(okas_kodlari)
@@ -335,10 +387,14 @@ def main() -> int:
     limit = _sayfa_limiti()
     tarih = _bugun().strftime("%d.%m.%Y")
 
-    print(f"🚀 EKAP cron başladı | OKAS={okas_etiket} | hariç={haric} | limit={limit}")
+    print(
+        f"🚀 EKAP cron başladı | {len(okas_kodlari)} OKAS kodu | "
+        f"hariç={haric} | limit={limit}"
+    )
+    print(f"   Kodlar: {okas_etiket}")
 
     try:
-        veriler = ekap_tara(okas_kodlari, haric, limit)
+        veriler, kod_hatalari = ekap_tara(okas_kodlari, haric, limit)
     except Exception as e:
         hata = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()[-2500:]}"
         print(hata, file=sys.stderr)
@@ -356,26 +412,43 @@ def main() -> int:
             return 2
         return 1
 
+    hata_notu = ""
+    if kod_hatalari:
+        hata_notu = "Atlanan OKAS kodları:\n" + "\n".join(f"- {x}" for x in kod_hatalari)
+
+    ozet = (
+        f"{len(okas_kodlari)} OKAS kodu tarandı. "
+        f"Tabloda {len(veriler)} benzersiz ihale yer alıyor."
+    )
+    if kod_hatalari:
+        ozet += f" {len(kod_hatalari)} kod atlandı."
+
     if not veriler:
         _bilgilendirme_gonder(
             konu=f"EKAP Sabah Bülteni — ihale bulunamadı ({tarih})",
             baslik="Bugün listelenecek ihale yok",
-            ozet="Tarama tamamlandı; filtrelere uyan açık ihale bulunamadı.",
+            ozet=ozet,
             okas=okas_etiket,
             veriler=[],
+            hata=hata_notu,
         )
         print("ℹ️ İhale bulunamadı; bilgilendirme maili gönderildi.")
-        return 0
+        return 1 if kod_hatalari and len(kod_hatalari) == len(okas_kodlari) else 0
 
     _bilgilendirme_gonder(
         konu=f"EKAP Sabah Bülteni — {len(veriler)} ihale ({tarih})",
         baslik="EKAP sabah ihale bülteni",
-        ozet=f"Tarama tamamlandı. Tabloda {len(veriler)} ihale yer alıyor.",
+        ozet=ozet,
         okas=okas_etiket,
         veriler=veriler,
+        hata=hata_notu,
     )
-    print(f"✅ Bülten gönderildi ({len(veriler)} kayıt).")
+    print(f"✅ Bülten gönderildi ({len(veriler)} benzersiz kayıt, {len(okas_kodlari)} OKAS).")
     return 0
+
+
+def main() -> int:
+    return ana_gorev()
 
 
 if __name__ == "__main__":
