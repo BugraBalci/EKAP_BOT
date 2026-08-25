@@ -16,12 +16,12 @@ on:
       okas:
         description: "OKAS kodu (virgülle birden fazla)"
         required: false
-        default: "48000000,31711000"
+        default: "32230000,32220000,32510000,32524000,32552420,32552110,32552430,32573000,32420000,32410000,32430000,64215000,64212000,64216210,64216100,64216200,64216120,64216110,72700000,72200000,72400000,72300000,72800000,72910000"
 
 jobs:
   send-digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,7 +51,7 @@ jobs:
           set -euo pipefail
           TO="${{ github.event.inputs.recipients }}"
           OKAS="${{ github.event.inputs.okas }}"
-          OKAS="${OKAS:-48000000,31711000}"
+          OKAS="${OKAS:-32230000,32220000,32510000,32524000,32552420,32552110,32552430,32573000,32420000,32410000,32430000,64215000,64212000,64216210,64216100,64216200,64216120,64216110,72700000,72200000,72400000,72300000,72800000,72910000}"
           if [ -n "${TO}" ]; then
             python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 2 --to "$TO"
           else

@@ -4,7 +4,7 @@
 Kullanım:
   python3 daily_digest.py
   python3 daily_digest.py --to balcibugra4@gmail.com,diger@ornek.com
-  python3 daily_digest.py --okas 48000000,31711000 --haric "lisans,araba"
+  python3 daily_digest.py --okas 32230000,72200000 --haric "lisans,araba"
 
 Alıcılar (--to yoksa) .env içindeki EKAP_EMAIL_RECIPIENTS'tan okunur.
 """
@@ -18,6 +18,7 @@ import traceback
 
 from bot_runner import ekap_botunu_calistir
 from email_provider import load_dotenv, sonuclari_email_gonder, uyari_mail_gonder
+from okas_defaults import DEFAULT_OKAS_VIRGUL
 
 
 def _actions_run_url() -> str:
@@ -37,7 +38,7 @@ def _alicilar(cli_to: str) -> list[str]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="EKAP günlük özet maili")
-    parser.add_argument("--okas", default="48000000,31711000")
+    parser.add_argument("--okas", default=DEFAULT_OKAS_VIRGUL)
     parser.add_argument("--haric", default="lisans, araba")
     parser.add_argument("--limit", type=int, default=2, help="Selenium sayfa limiti (1-3)")
     parser.add_argument("--to", default="", help="virgülle alıcılar")

@@ -1,8 +1,10 @@
 import csv
 import os
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
+from zoneinfo import ZoneInfo
 
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support.ui import WebDriverWait
@@ -13,14 +15,16 @@ from ekap_actions import (
     _arama_formu_hazir,
     arama_yap_ve_gosterimi_ayarla,
     durum_sec,
+    ilan_tarihi_ayarla,
     ogretici_kapat,
-    okas_kodu_sec,
+    okas_kodlari_sec,
 )
 
 ROOT = Path(__file__).resolve().parent
 EKAP_URL = "https://ekapv2.kik.gov.tr/ekap/search"
 DEFAULT_SELENIUM_SAYFA = 2
 MAX_SELENIUM_SAYFA = 3
+TZ = ZoneInfo("Europe/Istanbul")
 
 
 def verileri_kaydet(veri_listesi, dosya_adi="ekap_arayuz_sonuclar.csv"):
@@ -94,13 +98,32 @@ def _sayfaya_git(driver, url: str) -> None:
         print("⚠️ document.readyState beklenirken zaman aşımı; devam ediliyor.")
 
 
+def _benzersiz(kayitlar: Sequence[Dict[str, str]]) -> List[Dict[str, str]]:
+    out: List[Dict[str, str]] = []
+    gorulen = set()
+    for kayit in kayitlar:
+        kayit = _selenium_satir(kayit)
+        anahtar = _kayit_anahtari(kayit)
+        if not anahtar or anahtar in gorulen:
+            continue
+        gorulen.add(anahtar)
+        out.append(kayit)
+    return out
+
+
+def _ikn_set(kayitlar: Sequence[Dict[str, str]]) -> set:
+    return {
+        (k.get("İKN") or "").strip()
+        for k in kayitlar
+        if (k.get("İKN") or "").strip() and (k.get("İKN") or "").strip() != "-"
+    }
+
+
 def selenium_tara(
     okas_kodlari: Sequence[str], haric: str, limit: int, durum: str = "Teklif Vermeye Açık"
-) -> Tuple[List[Dict[str, str]], List[str]]:
-    """Headless Chrome ile her OKAS kodunu ayrı tarar; İKN birleşim kümesi döner."""
+) -> Tuple[List[Dict[str, str]], List[str], Dict[str, List]]:
+    """Tek oturumda tüm OKAS + açık liste + bugün/dün/bu hafta ilan tarihi."""
     driver = None
-    toplanan: List[Dict[str, str]] = []
-    gorulen = set()
     hatalar: List[str] = []
     sayfa = _sayfa_limiti(limit)
 
@@ -121,57 +144,91 @@ def selenium_tara(
         if not form_hazir:
             raise RuntimeError("EKAP arama formu 3 denemede yüklenmedi.")
 
-        for index, okas in enumerate(okas_kodlari, start=1):
-            print(f"\n🔎 [{index}/{len(okas_kodlari)}] OKAS {okas} taranıyor...")
-            try:
-                ogretici_kapat(driver, wait)
-                durum_sec(driver, wait, durum)
-                okas_kodu_sec(driver, wait, okas)
-                time.sleep(1.5)
-                arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50")
-                kayitlar = verileri_cek(
-                    driver, wait, maksimum_sayfa=sayfa, dislanacak_kelime=haric
-                )
-                eklenen = 0
-                for kayit in kayitlar:
-                    kayit = _selenium_satir(kayit)
-                    anahtar = _kayit_anahtari(kayit)
-                    if not anahtar or anahtar in gorulen:
+        ogretici_kapat(driver, wait)
+        durum_sec(driver, wait, durum)
+        okas_hatalari = okas_kodlari_sec(driver, wait, okas_kodlari)
+        hatalar.extend(okas_hatalari or [])
+        time.sleep(1.0)
+
+        def _tara(etiket: str, gosterim_ayarla: bool, okas_ust_sinir: bool):
+            print(f"\n🔎 {etiket}")
+            arama_yap_ve_gosterimi_ayarla(
+                driver,
+                wait,
+                gosterim_sayisi="50",
+                okas_ust_sinir=okas_ust_sinir,
+                gosterim_ayarla=gosterim_ayarla,
+            )
+            ham = verileri_cek(
+                driver, wait, maksimum_sayfa=sayfa, dislanacak_kelime=haric
+            )
+            kayitlar = _benzersiz(ham)
+            print(f"✅ {etiket}: {len(ham)} ham, {len(kayitlar)} benzersiz")
+            return kayitlar
+
+        try:
+            toplanan = _tara("Açık liste (ilan tarihi yok)", True, True)
+        except Exception as e:
+            _hata_ekrani_kaydet(driver)
+            raise
+
+        bugun = datetime.now(TZ).date()
+        dun = bugun - timedelta(days=1)
+        hafta_baslangici = bugun - timedelta(days=bugun.weekday())
+
+        yeni_bugun: List[Dict[str, str]] = []
+        yeni_dun: List[Dict[str, str]] = []
+        yeni_hafta: List[Dict[str, str]] = []
+        try:
+            ilan_tarihi_ayarla(driver, wait, bugun, bugun)
+            yeni_bugun = _tara("Bugün yayımlanan", False, False)
+            ilan_tarihi_ayarla(driver, wait, dun, dun)
+            yeni_dun = _tara("Dün yayımlanan", False, False)
+            # Aralık kutusu başlangıcı ezebiliyor; haftanın kalan günlerini tek tek tara.
+            haric_ikn = _ikn_set(yeni_bugun) | _ikn_set(yeni_dun)
+            gun = hafta_baslangici
+            while gun < dun:
+                ilan_tarihi_ayarla(driver, wait, gun, gun)
+                parca = _tara(f"Bu hafta {gun.strftime('%d.%m.%Y')}", False, False)
+                for kayit in parca:
+                    ikn = (kayit.get("İKN") or "").strip()
+                    if ikn and ikn in haric_ikn:
                         continue
-                    gorulen.add(anahtar)
-                    toplanan.append(kayit)
-                    eklenen += 1
-                print(
-                    f"✅ OKAS {okas}: {len(kayitlar)} kayıt, {eklenen} yeni "
-                    f"(toplam benzersiz: {len(toplanan)})"
-                )
-            except Exception as e:
-                try:
-                    driver.save_screenshot("ekap_hata_ekrani.png")
-                    src = driver.page_source or ""
-                    print("💾 Hata ekranı: ekap_hata_ekrani.png")
-                    print(
-                        f"   url={driver.current_url} title={driver.title!r} html_len={len(src)}"
-                    )
-                    Path("ekap_hata_ekrani.html").write_text(src[:80000], encoding="utf-8")
-                except Exception:
-                    pass
-                msg = f"{okas}: {type(e).__name__}: {e}"
-                print(f"⚠️ OKAS {okas} sırasında hata, bir sonrakine geçiliyor: {e}")
-                hatalar.append(msg)
-            finally:
-                if index < len(okas_kodlari):
-                    print("🔄 Sayfa sıfırlanıyor...")
-                    try:
-                        _sayfaya_git(driver, EKAP_URL)
-                        time.sleep(1.5)
-                    except Exception as reset_e:
-                        print(f"⚠️ Sayfa sıfırlama atlandı: {reset_e}")
+                    if ikn:
+                        haric_ikn.add(ikn)
+                    yeni_hafta.append(kayit)
+                gun += timedelta(days=1)
+            print(
+                f"🔗 Özet: açık={len(toplanan)} bugün={len(yeni_bugun)} "
+                f"dün={len(yeni_dun)} hafta(diğer)={len(yeni_hafta)}"
+            )
+        except Exception as e:
+            _hata_ekrani_kaydet(driver)
+            msg = f"ilan-tarihi: {type(e).__name__}: {e}"
+            print(f"⚠️ İlan tarihi taraması atlandı: {e}")
+            hatalar.append(msg)
+
+        meta = {
+            "yeni_bu_hafta": yeni_hafta,
+            "yeni_bugun": yeni_bugun,
+            "yeni_dun": yeni_dun,
+            "kod_hatalari": hatalar,
+        }
+        return toplanan, hatalar, meta
     finally:
         if driver is not None:
             driver.quit()
 
-    return toplanan, hatalar
+
+def _hata_ekrani_kaydet(driver) -> None:
+    try:
+        driver.save_screenshot("ekap_hata_ekrani.png")
+        src = driver.page_source or ""
+        print("💾 Hata ekranı: ekap_hata_ekrani.png")
+        print(f"   url={driver.current_url} title={driver.title!r} html_len={len(src)}")
+        Path("ekap_hata_ekrani.html").write_text(src[:80000], encoding="utf-8")
+    except Exception:
+        pass
 
 
 def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
@@ -192,7 +249,7 @@ def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
         f"sayfa_limiti={sayfa} (API 401, tarayıcı yolu)"
     )
 
-    toplanan, hatalar = selenium_tara(
+    toplanan, hatalar, meta = selenium_tara(
         roots, haric_kelime or "", sayfa, durum=durum
     )
     if hatalar and not toplanan:
@@ -200,13 +257,12 @@ def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
             "Selenium taraması sonuç vermedi.\n" + "\n".join(hatalar)
         )
     if hatalar:
-        print("⚠️ Bazı OKAS kodları atlandı:\n" + "\n".join(f"- {x}" for x in hatalar))
+        print("⚠️ Bazı adımlar atlandı:\n" + "\n".join(f"- {x}" for x in hatalar))
 
     verileri_kaydet(toplanan, dosya_adi=kayit_dosyasi)
-    meta = {
-        "yeni_bu_hafta": [],
-        "yeni_bugun": [],
-        "yeni_dun": [],
-        "kod_hatalari": hatalar,
-    }
+    meta = dict(meta or {})
+    meta.setdefault("yeni_bu_hafta", [])
+    meta.setdefault("yeni_bugun", [])
+    meta.setdefault("yeni_dun", [])
+    meta["kod_hatalari"] = hatalar
     return toplanan, kayit_dosyasi, meta

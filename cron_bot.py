@@ -25,12 +25,12 @@ from typing import Dict, List, Sequence
 from zoneinfo import ZoneInfo
 
 from bot_runner import ekap_botunu_calistir, verileri_kaydet
+from email_provider import ihale_sonuclarini_maile_cevir
+
+from okas_defaults import DEFAULT_OKAS_KODLARI
 
 # Selenium ağaç seçimi: ebeveyn kod işaretlenince alt başlıklar da gelir.
-TARANACAK_OKAS_KODLARI = [
-    "48000000",
-    "31711000",
-]
+TARANACAK_OKAS_KODLARI = list(DEFAULT_OKAS_KODLARI)
 DEFAULT_HARIC = "lisans, araba"
 KAYIT_DOSYASI = "ekap_arayuz_sonuclar.csv"
 DEFAULT_SAYFA_LIMITI = 2
@@ -290,7 +290,7 @@ def mail_gonder(konu: str, html_govde: str, metin_govde: str) -> None:
 
 def ekap_tara(
     okas_kodlari: Sequence[str], haric: str, limit: int
-) -> tuple[List[Dict[str, str]], List[str]]:
+) -> tuple[List[Dict[str, str]], List[str], Dict[str, List]]:
     """GUI ile aynı Selenium yolunu kullanır; kök kodlar virgülle birleşim kümesi."""
     okas = ",".join(okas_kodlari)
     print(f"🔎 EKAP Selenium taraması | kodlar={okas} | sayfa_limiti={limit}")
@@ -311,7 +311,7 @@ def ekap_tara(
 
     verileri_kaydet(toplanan, dosya_adi=KAYIT_DOSYASI)
     print(f"✅ Selenium birleşim: {len(ham)} ham, {len(toplanan)} benzersiz kayıt")
-    return toplanan, hatalar
+    return toplanan, hatalar, meta or {}
 
 
 def _bilgilendirme_gonder(
@@ -344,7 +344,7 @@ def ana_gorev() -> int:
     print(f"   Kodlar: {okas_etiket}")
 
     try:
-        veriler, kod_hatalari = ekap_tara(okas_kodlari, haric, limit)
+        veriler, kod_hatalari, meta = ekap_tara(okas_kodlari, haric, limit)
     except Exception as e:
         hata = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()[-2500:]}"
         print(hata, file=sys.stderr)
@@ -374,6 +374,11 @@ def ana_gorev() -> int:
         ozet += f" {len(kod_hatalari)} kod atlandı."
 
     print("📧 Selenium taraması bitti; tekilleştirilmiş bülten SMTP_SSL:465 ile hemen gönderiliyor.")
+    konu, metin, html_govde = ihale_sonuclarini_maile_cevir(
+        veriler, okas_etiket, yeni_meta=meta
+    )
+    if kod_hatalari and not hata_notu:
+        hata_notu = "Atlanan adımlar:\n" + "\n".join(f"- {x}" for x in kod_hatalari)
     if not veriler:
         _bilgilendirme_gonder(
             konu=f"EKAP Sabah Bülteni — ihale bulunamadı ({tarih})",
@@ -386,14 +391,7 @@ def ana_gorev() -> int:
         print("ℹ️ İhale bulunamadı; bilgilendirme maili gönderildi.")
         return 1 if kod_hatalari and len(kod_hatalari) == len(okas_kodlari) else 0
 
-    _bilgilendirme_gonder(
-        konu=f"EKAP Sabah Bülteni — {len(veriler)} ihale ({tarih})",
-        baslik="EKAP sabah ihale bülteni",
-        ozet=ozet,
-        okas=okas_etiket,
-        veriler=veriler,
-        hata=hata_notu,
-    )
+    mail_gonder(konu, html_govde, metin)
     print(f"✅ Bülten gönderildi ({len(veriler)} benzersiz kayıt, {len(okas_kodlari)} OKAS kodu).")
     return 0
 

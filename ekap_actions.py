@@ -276,8 +276,82 @@ def _sonuc_sayisi(driver) -> int:
         return -1
 
 
-def okas_kodu_sec(driver, wait, okas_kodu):
-    print(f"📂 'OKAS Kodu Seç' menüsü açılıyor ve '{okas_kodu}' aranıyor...")
+def _okas_arama_kutusu(driver):
+    arama_adaylari = [
+        (
+            By.XPATH,
+            _OKAS_POPUP_XPATH
+            + "//input[contains(@placeholder,'Arama') or contains(@placeholder,'arama')]",
+        ),
+        (By.XPATH, "//input[@aria-label='Search in the tree list']"),
+        (
+            By.XPATH,
+            _OKAS_POPUP_XPATH + "//input[contains(@class,'dx-texteditor-input')]",
+        ),
+    ]
+    last = None
+    for loc in arama_adaylari:
+        try:
+            return WebDriverWait(driver, 6).until(EC.visibility_of_element_located(loc))
+        except Exception as e:
+            last = e
+    raise last or TimeoutException("OKAS arama kutusu bulunamadı")
+
+
+def _okas_kodu_isaretle(driver, wait, okas_kodu) -> str:
+    arama_kutusu = _okas_arama_kutusu(driver)
+    driver.execute_script(
+        "arguments[0].scrollIntoView({block: 'center'}); arguments[0].focus();",
+        arama_kutusu,
+    )
+    _js_deger_yaz(driver, arama_kutusu, "")
+    time.sleep(0.2)
+    _js_deger_yaz(driver, arama_kutusu, okas_kodu)
+    WebDriverWait(driver, 8).until(
+        EC.presence_of_element_located(
+            (By.XPATH, f"//*[contains(text(), '{okas_kodu}')]")
+        )
+    )
+    time.sleep(0.35)
+    checkbox_xpath = (
+        f"(//*[@role='row' or self::tr or contains(@class,'dx-treelist-row')"
+        f" or contains(@class,'dx-data-row')]"
+        f"[.//text()[contains(., '{okas_kodu}')]]"
+        f"//span[contains(@class,'dx-checkbox-icon')])[1] "
+        f"| (//*[@role='row' or self::tr][.//text()[contains(., '{okas_kodu}')]]"
+        f"//*[@role='checkbox'])[1] "
+        f"| (//*[@role='row' or self::tr][.//text()[contains(., '{okas_kodu}')]]"
+        f"//*[@aria-label='Satırı seç'])[1]"
+    )
+    isaretli = driver.execute_script(
+        """
+        var kod = arguments[0];
+        var xpath = "//*[@role='row' or self::tr or contains(@class,'dx-treelist-row')]"
+          + "[.//text()[contains(., '" + kod + "')]]";
+        var rows = document.evaluate(xpath, document, null,
+          XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+        if (!rows.snapshotLength) return 'no-row';
+        var row = rows.snapshotItem(0);
+        var box = row.querySelector('.dx-checkbox, [role=checkbox]');
+        if (box && (box.classList.contains('dx-checkbox-checked')
+            || box.getAttribute('aria-checked') === 'true')) {
+          return 'already';
+        }
+        return 'need-click';
+        """,
+        okas_kodu,
+    )
+    if isaretli == "already":
+        return "already"
+    _bekle_ve_tikla(driver, wait, (By.XPATH, checkbox_xpath), f"OKAS {okas_kodu}")
+    return "clicked"
+
+
+def okas_kodlari_sec(driver, wait, okas_kodlari):
+    kodlar = [str(k).strip() for k in (okas_kodlari or []) if str(k).strip()]
+    if not kodlar:
+        raise RuntimeError("OKAS kodu boş.")
+    print(f"📂 'OKAS Kodu Seç' menüsü açılıyor ({len(kodlar)} kod)...")
     try:
         ogretici_kapat(driver, wait)
         time.sleep(0.5)
@@ -297,62 +371,23 @@ def okas_kodu_sec(driver, wait, okas_kodu):
 
         tab_sonuc = _okas_popup_metin_tikla(driver, "KALEM AĞACI LİSTESİ")
         print(f"   OKAS sekme: {tab_sonuc}")
-        time.sleep(1.0)
+        time.sleep(0.8)
 
-        arama_adaylari = [
-            (
-                By.XPATH,
-                _OKAS_POPUP_XPATH
-                + "//input[contains(@placeholder,'Arama') or contains(@placeholder,'arama')]",
-            ),
-            (
-                By.XPATH,
-                "//input[@aria-label='Search in the tree list']",
-            ),
-            (
-                By.XPATH,
-                _OKAS_POPUP_XPATH + "//input[contains(@class,'dx-texteditor-input')]",
-            ),
-        ]
-        arama_kutusu = None
-        last = None
-        for loc in arama_adaylari:
+        secilen = 0
+        hatalar = []
+        for kod in kodlar:
             try:
-                arama_kutusu = WebDriverWait(driver, 6).until(
-                    EC.visibility_of_element_located(loc)
-                )
-                break
+                durum = _okas_kodu_isaretle(driver, wait, kod)
+                secilen += 1
+                print(f"   ✓ {kod} ({durum})")
             except Exception as e:
-                last = e
-        if arama_kutusu is None:
-            raise last or TimeoutException("OKAS arama kutusu bulunamadı")
-        driver.execute_script(
-            "arguments[0].scrollIntoView({block: 'center'}); arguments[0].focus();",
-            arama_kutusu,
-        )
-        _js_deger_yaz(driver, arama_kutusu, okas_kodu)
-        WebDriverWait(driver, 8).until(
-            EC.presence_of_element_located(
-                (
-                    By.XPATH,
-                    f"//*[contains(text(), '{okas_kodu}')]",
-                )
-            )
-        )
-        time.sleep(0.6)
+                hatalar.append(f"{kod}: {e}")
+                print(f"   ⚠️ {kod} işaretlenemedi: {e}")
 
-        checkbox_xpath = (
-            f"(//*[@role='row' or self::tr or contains(@class,'dx-treelist-row')"
-            f" or contains(@class,'dx-data-row')]"
-            f"[.//text()[contains(., '{okas_kodu}')]]"
-            f"//span[contains(@class,'dx-checkbox-icon')])[1] "
-            f"| (//*[@role='row' or self::tr][.//text()[contains(., '{okas_kodu}')]]"
-            f"//*[@role='checkbox'])[1] "
-            f"| (//*[@role='row' or self::tr][.//text()[contains(., '{okas_kodu}')]]"
-            f"//*[@aria-label='Satırı seç'])[1]"
-        )
-        _bekle_ve_tikla(driver, wait, (By.XPATH, checkbox_xpath), "OKAS checkbox")
-        time.sleep(0.6)
+        if secilen <= 0:
+            raise RuntimeError(
+                "Hiçbir OKAS kodu işaretlenemedi: " + "; ".join(hatalar[:4])
+            )
 
         sec = _okas_popup_metin_tikla(driver, "Seç")
         if sec != "clicked":
@@ -379,12 +414,189 @@ def okas_kodu_sec(driver, wait, okas_kodu):
         print(f"   OKAS buton (sonra): {metin or '-'} ({adet} adet)")
         if adet <= 0:
             raise RuntimeError(
-                f"OKAS {okas_kodu} uygulanmadı; buton hâlâ '{metin or 'OKAS Kodu Seç'}'."
+                f"OKAS uygulanmadı; buton hâlâ '{metin or 'OKAS Kodu Seç'}'."
             )
-        print(f"✅ OKAS kodu '{okas_kodu}' seçildi ({adet} kalem).")
+        if hatalar:
+            print("⚠️ Bazı OKAS kodları atlandı: " + "; ".join(hatalar))
+        print(f"✅ {secilen}/{len(kodlar)} OKAS kodu seçildi ({adet} kalem).")
+        return hatalar
     except Exception as e:
         print(f"❌ OKAS kodu seçilirken HATA: {e}")
         raise
+
+
+def okas_kodu_sec(driver, wait, okas_kodu):
+    okas_kodlari_sec(driver, wait, [okas_kodu])
+
+
+def _ilan_tarihi_bolumu(driver):
+    return driver.execute_script(
+        """
+        function ownText(el) {
+          return Array.from(el.childNodes)
+            .filter(function (n) { return n.nodeType === 3; })
+            .map(function (n) { return n.textContent; })
+            .join('')
+            .replace(/\\s+/g, ' ')
+            .trim();
+        }
+        var lab = Array.from(document.querySelectorAll('div, span, label, p, legend, strong, h2, h3'))
+          .find(function (el) { return ownText(el) === 'İlan Tarihi'; });
+        return lab ? lab.parentElement : null;
+        """
+    )
+
+
+def _ilan_preset_tikla(driver, metin: str) -> str:
+    return str(
+        driver.execute_script(
+            """
+            function ownText(el) {
+              return Array.from(el.childNodes)
+                .filter(function (n) { return n.nodeType === 3; })
+                .map(function (n) { return n.textContent; })
+                .join('')
+                .replace(/\\s+/g, ' ')
+                .trim();
+            }
+            var lab = Array.from(document.querySelectorAll('div, span, label, p, legend, strong'))
+              .find(function (el) { return ownText(el) === 'İlan Tarihi'; });
+            if (!lab || !lab.parentElement) return 'no-section';
+            var hedef = (arguments[0] || '').trim();
+            var btn = Array.from(lab.parentElement.querySelectorAll('div, span, button, a, label, p'))
+              .find(function (el) { return ownText(el) === hedef; });
+            if (!btn) return 'not-found';
+            btn.scrollIntoView({block:'center'});
+            btn.click();
+            return 'clicked:' + hedef;
+            """,
+            metin,
+        )
+    )
+
+
+def _ilan_tarihi_kutulari(driver):
+    return driver.execute_script(
+        """
+        function ownText(el) {
+          return Array.from(el.childNodes)
+            .filter(function (n) { return n.nodeType === 3; })
+            .map(function (n) { return n.textContent; })
+            .join('')
+            .replace(/\\s+/g, ' ')
+            .trim();
+        }
+        function inputNear(root, label) {
+          var lab = Array.from(root.querySelectorAll('div, span, label, p'))
+            .find(function (el) { return ownText(el) === label; });
+          if (!lab) return null;
+          var p = lab.parentElement;
+          for (var i = 0; i < 8 && p; i++) {
+            var inp = p.querySelector('.dx-datebox input.dx-texteditor-input, .dx-datebox input');
+            if (inp) return inp;
+            p = p.parentElement;
+          }
+          return null;
+        }
+        var lab = Array.from(document.querySelectorAll('div, span, label, p, legend, strong'))
+          .find(function (el) { return ownText(el) === 'İlan Tarihi'; });
+        if (!lab || !lab.parentElement) return [];
+        var root = lab.parentElement;
+        var start = inputNear(root, 'Başlangıç Tarihi');
+        var end = inputNear(root, 'Bitiş Tarihi');
+        if (start && end && start !== end) return [start, end];
+        var inputs = Array.from(root.querySelectorAll(
+          '.dx-datebox input.dx-texteditor-input, .dx-datebox input'
+        ));
+        return inputs.slice(0, 2);
+        """
+    )
+
+
+def _tarih_deger_uyuyor(val: str, gun) -> bool:
+    val = (val or "").strip()
+    return gun.strftime("%d.%m.%Y") in val or gun.strftime("%Y-%m-%d") in val
+
+
+def _takvim_gun_tikla(driver, gun) -> str:
+    val = gun.strftime("%Y/%m/%d")
+    return str(
+        driver.execute_script(
+            """
+            var val = arguments[0];
+            var cells = Array.from(document.querySelectorAll('.dx-calendar-cell[data-value="' + val + '"]'))
+              .filter(function (c) {
+                return !c.classList.contains('dx-calendar-other-month')
+                  && !c.classList.contains('dx-calendar-other-view');
+              });
+            if (!cells.length) {
+              cells = Array.from(document.querySelectorAll('.dx-calendar-cell[data-value="' + val + '"]'));
+            }
+            if (!cells.length) return 'no-cell:' + val;
+            var c = cells[0];
+            c.scrollIntoView({block:'center'});
+            c.click();
+            return 'clicked:' + val;
+            """,
+            val,
+        )
+    )
+
+
+def ilan_tarihi_ayarla(driver, wait, baslangic, bitis):
+    """İlan Tarihi > Tarih Aralığı takviminden gün seçer (DX DateRangeBox)."""
+    _ = wait
+    b = baslangic.strftime("%d.%m.%Y")
+    e = bitis.strftime("%d.%m.%Y")
+    print(f"📅 İlan tarihi: {b} — {e}")
+    if _ilan_tarihi_bolumu(driver) is None:
+        raise RuntimeError("İlan Tarihi bölümü bulunamadı.")
+
+    sonuc = _ilan_preset_tikla(driver, "Tarih Aralığı")
+    print(f"   İlan preset: {sonuc}")
+    if not str(sonuc).startswith("clicked"):
+        raise RuntimeError("İlan Tarihi 'Tarih Aralığı' seçilemedi.")
+    time.sleep(0.5)
+
+    kutular = _ilan_tarihi_kutulari(driver)
+    if len(kutular) < 1:
+        raise RuntimeError("İlan Tarihi tarih kutusu bulunamadı.")
+    driver.execute_script(
+        "arguments[0].scrollIntoView({block:'center'}); arguments[0].click();",
+        kutular[0],
+    )
+    WebDriverWait(driver, 6).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, ".dx-calendar-cell"))
+    )
+    time.sleep(0.3)
+    s1 = _takvim_gun_tikla(driver, baslangic)
+    time.sleep(0.25)
+    s2 = _takvim_gun_tikla(driver, bitis)
+    print(f"   Takvim: {s1} / {s2}")
+    if not str(s1).startswith("clicked") or not str(s2).startswith("clicked"):
+        raise RuntimeError(f"İlan tarihi takvimden seçilemedi ({s1}, {s2}).")
+    try:
+        driver.execute_script(
+            "document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));"
+        )
+    except Exception:
+        pass
+    time.sleep(0.4)
+    kutular = _ilan_tarihi_kutulari(driver)
+    okunan = []
+    for el in (kutular or [])[:2]:
+        try:
+            okunan.append((el.get_attribute("value") or "").strip())
+        except StaleElementReferenceException:
+            okunan.append("")
+    print(f"   İlan tarihi kutuları: {okunan}")
+    if len(okunan) < 2 or not (
+        _tarih_deger_uyuyor(okunan[0], baslangic)
+        and _tarih_deger_uyuyor(okunan[1], bitis)
+    ):
+        raise RuntimeError(
+            f"İlan tarihi yazılamadı (beklenen {b}–{e}, okunan {okunan})."
+        )
 
 
 def _arama_formu_hazir(driver, timeout=40):
@@ -509,7 +721,9 @@ def durum_sec(driver, wait, durum="Teklif Vermeye Açık"):
     print("✅ İhale durumu: Teklif Vermeye Açık")
 
 
-def arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50"):
+def arama_yap_ve_gosterimi_ayarla(
+    driver, wait, gosterim_sayisi="50", okas_ust_sinir=True, gosterim_ayarla=True
+):
     print("🔍 'Filtrele' butonuna basılıyor, ihaleler getiriliyor...")
     _ogretici_ve_backdrop_kaybolsun(driver, timeout=3)
 
@@ -536,24 +750,26 @@ def arama_yap_ve_gosterimi_ayarla(driver, wait, gosterim_sayisi="50"):
     n = _sonuc_sayisi(driver)
     if n >= 0:
         print(f"   Listelenen ihale: {n}")
-    if n > 100000:
+    if okas_ust_sinir and n > 100000:
         raise RuntimeError(
             f"OKAS filtresi uygulanmamış görünüyor: {n} ihale listeleniyor "
             "(beklenen: yazılıma özgü yüzler/binler, milyonlar değil)."
         )
 
-    try:
-        gosterim_xpath = (
-            "//*[@title='Gösterilecek Kayıt Sayısı'] "
-            "| //div[contains(@class,'dx-selectbox')][.//input or contains(., 'Kayıt')]"
-        )
-        _bekle_ve_tikla(driver, wait, (By.XPATH, gosterim_xpath), "Gösterim kutusu")
-        time.sleep(0.8)
-        elli_xpath = (
-            f"//div[contains(@class, 'dx-list-item-content') and normalize-space()='{gosterim_sayisi}']"
-        )
-        _bekle_ve_tikla(driver, wait, (By.XPATH, elli_xpath), f"Gösterim {gosterim_sayisi}")
-        time.sleep(1.5)
-    except Exception as e:
-        print(f"⚠️ Gösterim sayısı ayarlanamadı ({e}); mevcut liste ile devam.")
+    if gosterim_ayarla:
+        try:
+            gosterim_xpath = (
+                "//*[@title='Gösterilecek Kayıt Sayısı'] "
+                "| //div[contains(@class,'dx-selectbox')][.//input or contains(., 'Kayıt')]"
+            )
+            _bekle_ve_tikla(driver, wait, (By.XPATH, gosterim_xpath), "Gösterim kutusu")
+            time.sleep(0.8)
+            elli_xpath = (
+                f"//div[contains(@class, 'dx-list-item-content') and normalize-space()='{gosterim_sayisi}']"
+            )
+            _bekle_ve_tikla(driver, wait, (By.XPATH, elli_xpath), f"Gösterim {gosterim_sayisi}")
+            time.sleep(1.5)
+        except Exception as e:
+            print(f"⚠️ Gösterim sayısı ayarlanamadı ({e}); mevcut liste ile devam.")
     print("✅ Filtrele uygulandı.")
+    return n

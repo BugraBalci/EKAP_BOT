@@ -7,6 +7,7 @@ import re
 
 from bot_runner import ekap_botunu_calistir
 from email_provider import sonuclari_email_gonder
+from okas_defaults import DEFAULT_OKAS_VIRGUL
 
 
 class EkapBotApp:
@@ -22,9 +23,9 @@ class EkapBotApp:
         lbl_baslik = tk.Label(self.root, text="EKAP Veri Çekme Botu", font=("Arial", 14, "bold"))
         lbl_baslik.pack(pady=(0, 15))
 
-        tk.Label(self.root, text="OKAS Kodu (virgülle birden fazla, örn: 48000000, 31711000):", font=("Arial", 10, "bold")).pack(anchor="w")
+        tk.Label(self.root, text="OKAS Kodu (virgülle birden fazla):", font=("Arial", 10, "bold")).pack(anchor="w")
         self.entry_okas = tk.Entry(self.root, width=48)
-        self.entry_okas.insert(0, "48000000, 31711000")
+        self.entry_okas.insert(0, DEFAULT_OKAS_VIRGUL)
         self.entry_okas.pack(pady=(0, 10))
 
         tk.Label(self.root, text="İstenmeyen Kelimeler (Virgülle ayırın, örn: lisans,araba):", font=("Arial", 9, "bold")).pack(anchor="w")
