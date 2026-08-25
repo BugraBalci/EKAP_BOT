@@ -18,6 +18,7 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
+from pathlib import Path
 from typing import Dict, List, Sequence
 from zoneinfo import ZoneInfo
 
@@ -58,10 +59,39 @@ def _sayfa_limiti() -> int:
         return 0
 
 
+def _load_dotenv() -> None:
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip("'").strip('"')
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def _env_metin(*isimler: str) -> str:
+    for isim in isimler:
+        deger = os.environ.get(isim)
+        if deger is None:
+            continue
+        deger = deger.strip().strip("'").strip('"').replace(";", ",")
+        if deger:
+            return deger
+    return ""
+
+
 def _alicilar() -> List[str]:
-    raw = (
-        (os.environ.get("EKAP_EMAIL_RECIPIENTS") or "").strip()
-        or (os.environ.get("RECEIVER_MAILS") or "").strip()
+    _load_dotenv()
+    raw = _env_metin("EKAP_EMAIL_RECIPIENTS", "RECEIVER_MAILS", "RECEIVER_MAIL")
+    print(
+        "📬 Alıcı env: "
+        f"EKAP_EMAIL_RECIPIENTS={'dolu' if _env_metin('EKAP_EMAIL_RECIPIENTS') else 'bos'} | "
+        f"RECEIVER_MAILS={'dolu' if _env_metin('RECEIVER_MAILS') else 'bos'}"
     )
     return [x.strip() for x in raw.split(",") if x.strip() and "@" in x]
 
@@ -298,6 +328,7 @@ def _bilgilendirme_gonder(
 
 
 def main() -> int:
+    _load_dotenv()
     okas_kodlari = _okas_kodlari()
     okas_etiket = ", ".join(okas_kodlari)
     haric = _haric_kelime()

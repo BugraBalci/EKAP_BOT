@@ -1,8 +1,7 @@
 # Her sabah 08:30 Türkiye (UTC+3) — Selenium / headless Chrome ile EKAP tarama.
-# Secrets (Settings → Secrets and variables → Actions):
-#   SENDER_MAIL       → SMTP gönderen adres (ör. Gmail)
-#   SENDER_PASSWORD   → SMTP şifresi / Gmail uygulama şifresi
-#   EKAP_EMAIL_RECIPIENTS → virgülle alıcılar (örn: a@x.com,b@y.com)
+# Secrets veya Variables (Settings → Secrets and variables → Actions):
+#   SENDER_MAIL, SENDER_PASSWORD
+#   EKAP_EMAIL_RECIPIENTS veya RECEIVER_MAILS → virgülle alıcılar
 
 name: EKAP Daily Selenium Digest
 
@@ -16,6 +15,11 @@ jobs:
   scrape-and-mail:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      SENDER_MAIL: ${{ secrets.SENDER_MAIL || vars.SENDER_MAIL }}
+      SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD || vars.SENDER_PASSWORD }}
+      EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS || secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS }}
+      RECEIVER_MAILS: ${{ secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS || secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,9 +41,4 @@ jobs:
         run: pip install selenium webdriver-manager pandas
 
       - name: Run EKAP cron bot
-        env:
-          SENDER_MAIL: ${{ secrets.SENDER_MAIL }}
-          SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD }}
-          EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS }}
-          RECEIVER_MAILS: ${{ secrets.EKAP_EMAIL_RECIPIENTS }}
         run: python cron_bot.py
