@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_URL = "https://msa.entropywork.com/api/send-email"
+DEFAULT_FROM = "info@entropywork.com"
 
 
 def load_dotenv(path: Optional[Path] = None) -> None:
@@ -44,6 +45,11 @@ def _api_url() -> str:
     return (os.environ.get("ENTROPY_EMAIL_API_URL") or DEFAULT_URL).strip()
 
 
+def _from_address() -> str:
+    load_dotenv()
+    return (os.environ.get("ENTROPY_EMAIL_FROM") or DEFAULT_FROM).strip()
+
+
 def send_email(
     to: str,
     subject: str,
@@ -55,6 +61,7 @@ def send_email(
         raise ValueError("Geçerli bir alıcı e-posta adresi gerekli.")
 
     payload: Dict[str, Any] = {
+        "from": _from_address(),
         "to": to,
         "subject": subject,
         "body": body,
@@ -152,24 +159,13 @@ def _yeni_kutu(
 
 
 def build_subject(
-    okas: str,
-    n_acik: int,
     yeni_bugun: List[Dict[str, str]],
     yeni_dun: List[Dict[str, str]],
 ) -> str:
-    """
-    09:00 sabah maili başlığı:
-      - Bugün ilan yayımlandıysa → "Bugün yeni ilan var"
-      - Dün ilan yayımlandıysa → "Önceki gün yeni ilan var"
-    """
-    parts: List[str] = []
-    if yeni_bugun:
-        parts.append(f"Bugün {len(yeni_bugun)} yeni ilan var")
-    if yeni_dun:
-        parts.append(f"Önceki günden {len(yeni_dun)} yeni ilan var")
-    if parts:
-        return " | ".join(parts) + f" — OKAS {okas} ({n_acik} açık)"
-    return f"EKAP İhale Özeti — OKAS {okas} ({n_acik} açık, yeni ilan yok)"
+    """Mail başlığı: bugün / dün girilen ihale sayıları (OKAS kodu yok)."""
+    n_bugun = len(yeni_bugun)
+    n_dun = len(yeni_dun)
+    return f"Bugün {n_bugun} ihale, dün {n_dun} ihale girildi"
 
 
 def ihale_sonuclarini_maile_cevir(
@@ -189,7 +185,7 @@ def ihale_sonuclarini_maile_cevir(
         yeni_hafta = list(yeni_meta.get("yeni_bu_hafta") or [])
 
     n = len(veriler)
-    subject = build_subject(okas, n, yeni_bugun, yeni_dun)
+    subject = build_subject(yeni_bugun, yeni_dun)
 
     lines = [
         f"OKAS: {okas}",

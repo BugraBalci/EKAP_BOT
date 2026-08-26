@@ -1,7 +1,8 @@
 # Her sabah 08:30 Türkiye (UTC+3) — Selenium / headless Chrome ile EKAP tarama.
 # Secrets veya Variables (Settings → Secrets and variables → Actions):
-#   SENDER_MAIL, SENDER_PASSWORD
+#   ENTROPY_EMAIL_API_KEY  → MSA API (gönderen: info@entropywork.com)
 #   EKAP_EMAIL_RECIPIENTS veya RECEIVER_MAILS → virgülle alıcılar
+# Yedek SMTP: SENDER_MAIL, SENDER_PASSWORD
 
 name: EKAP Daily Selenium Digest
 
@@ -16,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
+      ENTROPY_EMAIL_API_URL: https://msa.entropywork.com/api/send-email
+      ENTROPY_EMAIL_API_KEY: ${{ secrets.ENTROPY_EMAIL_API_KEY }}
+      ENTROPY_EMAIL_FROM: info@entropywork.com
       SENDER_MAIL: ${{ secrets.SENDER_MAIL || vars.SENDER_MAIL }}
       SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD || vars.SENDER_PASSWORD }}
       EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS || secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS }}

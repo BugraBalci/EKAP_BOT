@@ -1,7 +1,7 @@
 # Elle tetiklenen özet (Entropy MSA mail) — Selenium / headless Chrome.
-# Zamanlanmış günlük bülten (SMTP): .github/workflows/ekap_daily.yml
+# Zamanlanmış günlük bülten: .github/workflows/ekap_daily.yml
 # Secrets (Settings → Secrets and variables → Actions):
-#   ENTROPY_EMAIL_API_KEY  → MSA API key
+#   ENTROPY_EMAIL_API_KEY  → MSA API key (gönderen: info@entropywork.com)
 #   EKAP_EMAIL_RECIPIENTS  → virgülle alıcılar (örn: a@x.com,b@y.com)
 
 name: EKAP Daily Digest (Selenium, manual)
@@ -46,6 +46,7 @@ jobs:
         env:
           ENTROPY_EMAIL_API_URL: https://msa.entropywork.com/api/send-email
           ENTROPY_EMAIL_API_KEY: ${{ secrets.ENTROPY_EMAIL_API_KEY }}
+          ENTROPY_EMAIL_FROM: info@entropywork.com
           EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS }}
         run: |
           set -euo pipefail

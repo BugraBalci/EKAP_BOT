@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""GitHub Actions / cron: Selenium ile EKAP tarama + SMTP sabah bülteni.
+"""GitHub Actions / cron: Selenium ile EKAP tarama + sabah bülteni.
 
 GUI (main.py) ile aynı yolu kullanır: bot_runner → headless Chrome.
 EKAP API 401 verdiği için ihale-mcp kullanılmaz.
 
-Ortam değişkenleri: SENDER_MAIL, SENDER_PASSWORD, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
-İsteğe bağlı: SMTP_HOST, SMTP_PORT (varsayılan smtp.gmail.com:465 SSL),
+Ortam değişkenleri: ENTROPY_EMAIL_API_KEY, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
+Gönderen: info@entropywork.com (ENTROPY_EMAIL_FROM ile değiştirilebilir).
+İsteğe bağlı SMTP yedek: SENDER_MAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT.
 OKAS_KODU (virgülle kodlar), HARIC_KELIME, SAYFA_LIMITI (varsayılan 2, en fazla 3).
 """
 
@@ -25,7 +26,7 @@ from typing import Dict, List, Sequence
 from zoneinfo import ZoneInfo
 
 from bot_runner import ekap_botunu_calistir, verileri_kaydet
-from email_provider import ihale_sonuclarini_maile_cevir
+from email_provider import ihale_sonuclarini_maile_cevir, send_email as msa_send_email
 
 from okas_defaults import DEFAULT_OKAS_KODLARI
 
@@ -259,17 +260,29 @@ def bulten_metin(
 
 
 def mail_gonder(konu: str, html_govde: str, metin_govde: str) -> None:
-    sender_mail = (os.environ.get("SENDER_MAIL") or "").strip()
-    sender_password = os.environ.get("SENDER_PASSWORD") or ""
     alicilar = _alicilar()
-    if not sender_mail or "@" not in sender_mail:
-        raise RuntimeError("SENDER_MAIL ortam değişkeni eksik veya geçersiz.")
-    if not sender_password:
-        raise RuntimeError("SENDER_PASSWORD ortam değişkeni eksik.")
     if not alicilar:
         raise RuntimeError(
             "EKAP_EMAIL_RECIPIENTS (veya RECEIVER_MAILS) ortam değişkeni eksik veya geçersiz."
         )
+
+    api_key = (os.environ.get("ENTROPY_EMAIL_API_KEY") or "").strip()
+    if api_key:
+        gonderen = (os.environ.get("ENTROPY_EMAIL_FROM") or "info@entropywork.com").strip()
+        print(f"📧 Mail gönderiliyor (MSA {gonderen}) → {', '.join(alicilar)}")
+        for to in alicilar:
+            msa_send_email(to=to, subject=konu, body=metin_govde, html=html_govde)
+        print("✅ Mail gönderildi.")
+        return
+
+    sender_mail = (os.environ.get("SENDER_MAIL") or "").strip()
+    sender_password = os.environ.get("SENDER_PASSWORD") or ""
+    if not sender_mail or "@" not in sender_mail:
+        raise RuntimeError(
+            "ENTROPY_EMAIL_API_KEY veya SENDER_MAIL ortam değişkeni eksik veya geçersiz."
+        )
+    if not sender_password:
+        raise RuntimeError("SENDER_PASSWORD ortam değişkeni eksik.")
 
     host = (os.environ.get("SMTP_HOST") or "smtp.gmail.com").strip()
     port = int((os.environ.get("SMTP_PORT") or "465").strip())
@@ -373,7 +386,7 @@ def ana_gorev() -> int:
     if kod_hatalari:
         ozet += f" {len(kod_hatalari)} kod atlandı."
 
-    print("📧 Selenium taraması bitti; tekilleştirilmiş bülten SMTP_SSL:465 ile hemen gönderiliyor.")
+    print("📧 Selenium taraması bitti; bülten info@entropywork.com üzerinden gönderiliyor.")
     konu, metin, html_govde = ihale_sonuclarini_maile_cevir(
         veriler, okas_etiket, yeni_meta=meta
     )
@@ -381,7 +394,7 @@ def ana_gorev() -> int:
         hata_notu = "Atlanan adımlar:\n" + "\n".join(f"- {x}" for x in kod_hatalari)
     if not veriler:
         _bilgilendirme_gonder(
-            konu=f"EKAP Sabah Bülteni — ihale bulunamadı ({tarih})",
+            konu=konu,
             baslik="Bugün listelenecek ihale yok",
             ozet=ozet,
             okas=okas_etiket,
