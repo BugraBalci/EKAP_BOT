@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+
+Attachment = Tuple[str, bytes, str]  # filename, content, mime type
 
 ROOT = Path(__file__).resolve().parent
 DEFAULT_URL = "https://msa.entropywork.com/api/send-email"
@@ -55,6 +58,7 @@ def send_email(
     subject: str,
     body: str,
     html: Optional[str] = None,
+    attachments: Optional[Sequence[Attachment]] = None,
 ) -> Dict[str, Any]:
     to = (to or "").strip()
     if not to or "@" not in to:
@@ -68,6 +72,16 @@ def send_email(
     }
     if html:
         payload["html"] = html
+    if attachments:
+        payload["attachments"] = [
+            {
+                "filename": name,
+                "content": base64.b64encode(data).decode("ascii"),
+                "contentType": ctype or "application/octet-stream",
+            }
+            for name, data, ctype in attachments
+            if name and data
+        ]
 
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -80,7 +94,7 @@ def send_email(
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
             try:
                 return json.loads(raw) if raw else {"ok": True, "status": resp.status}
@@ -88,6 +102,12 @@ def send_email(
                 return {"ok": True, "status": resp.status, "raw": raw}
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace")
+        if attachments:
+            print(
+                f"⚠️ E-posta API eki reddetti (HTTP {e.code}); "
+                "ek olmadan yeniden denenecek."
+            )
+            return send_email(to=to, subject=subject, body=body, html=html)
         raise RuntimeError(f"E-posta API hatası HTTP {e.code}: {detail}") from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"E-posta API'ye bağlanılamadı: {e}") from e
@@ -332,5 +352,8 @@ def sonuclari_email_gonder(
 ) -> Dict[str, Any]:
     # geriye dönük: yeni_bu_hafta=list veya meta=dict; kwargs.yeni_meta
     meta = kwargs.get("yeni_meta", yeni_bu_hafta)
+    attachments = kwargs.get("attachments")
     subject, body, html = ihale_sonuclarini_maile_cevir(veriler, okas, meta)
-    return send_email(to=to, subject=subject, body=body, html=html)
+    return send_email(
+        to=to, subject=subject, body=body, html=html, attachments=attachments
+    )

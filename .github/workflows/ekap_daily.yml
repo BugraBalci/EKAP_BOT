@@ -3,6 +3,8 @@
 #   ENTROPY_EMAIL_API_KEY  → MSA API (gönderen: info@entropywork.com)
 #   EKAP_EMAIL_RECIPIENTS veya RECEIVER_MAILS → virgülle alıcılar
 # Yedek SMTP: SENDER_MAIL, SENDER_PASSWORD
+# Google Takvim: GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_CALENDAR_ID
+#   (takvimi service account e-postası ile "Etkinlikleri değiştirme" yetkisiyle paylaşın)
 
 name: EKAP Daily API Digest
 
@@ -15,7 +17,7 @@ on:
 jobs:
   scrape-and-mail:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       ENTROPY_EMAIL_API_URL: https://msa.entropywork.com/api/send-email
       ENTROPY_EMAIL_API_KEY: ${{ secrets.ENTROPY_EMAIL_API_KEY }}
@@ -24,6 +26,8 @@ jobs:
       SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD || vars.SENDER_PASSWORD }}
       EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS || secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS }}
       RECEIVER_MAILS: ${{ secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS || secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS }}
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID || vars.GOOGLE_CALENDAR_ID }}
       SAYFA_LIMITI: "0"
     steps:
       - name: Checkout
@@ -38,6 +42,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
 
       - name: Clone ihale-mcp vendor
         run: |

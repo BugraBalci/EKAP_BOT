@@ -17,6 +17,7 @@ import sys
 import traceback
 
 from bot_runner import ekap_botunu_calistir
+from calendar_sync import ICS_DOSYA_ADI, google_takvime_yaz, ics_olustur
 from email_provider import load_dotenv, sonuclari_email_gonder, uyari_mail_gonder
 from okas_defaults import DEFAULT_OKAS_VIRGUL
 
@@ -84,8 +85,22 @@ def main() -> int:
         if "MUS-G8" in ad or ("POSTA" in kurum and "TELGRAF" in kurum):
             print("UYARI beklenmeyen kayıt:", v.get("İKN"), v.get("İşin Adı"), file=sys.stderr)
 
+    attachments = None
+    if veriler:
+        try:
+            google_takvime_yaz(veriler)
+        except Exception as e:
+            print(f"Google Takvim senkronu başarısız: {e}", file=sys.stderr)
+        try:
+            ics_bytes = ics_olustur(veriler)
+            attachments = [(ICS_DOSYA_ADI, ics_bytes, "text/calendar")]
+        except Exception as e:
+            print(f"ICS dosyası oluşturulamadı: {e}", file=sys.stderr)
+
     for to in alicilar:
-        r = sonuclari_email_gonder(to, veriler, args.okas, yeni_meta=meta)
+        r = sonuclari_email_gonder(
+            to, veriler, args.okas, yeni_meta=meta, attachments=attachments
+        )
         print(f"MAIL {to}: {r.get('status') or r}")
 
     return 0

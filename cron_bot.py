@@ -7,6 +7,7 @@ Selenium / headless Chrome kullanılmaz.
 Ortam değişkenleri: ENTROPY_EMAIL_API_KEY, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
 Gönderen: info@entropywork.com (ENTROPY_EMAIL_FROM ile değiştirilebilir).
 İsteğe bağlı SMTP yedek: SENDER_MAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT.
+Google Takvim: GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_CALENDAR_ID.
 OKAS_KODU (virgülle kök kodlar; API alt kodları genişletir),
 HARIC_KELIME, SAYFA_LIMITI (0 = tüm sayfalar).
 """
@@ -19,14 +20,17 @@ import smtplib
 import sys
 import traceback
 from datetime import datetime
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
 from bot_runner import ekap_botunu_calistir, verileri_kaydet
+from calendar_sync import ICS_DOSYA_ADI, google_takvime_yaz, ics_olustur
 from email_provider import ihale_sonuclarini_maile_cevir, send_email as msa_send_email
 
 from okas_defaults import DEFAULT_OKAS_KODLARI
@@ -262,7 +266,12 @@ def bulten_metin(
     return "\n".join(lines)
 
 
-def mail_gonder(konu: str, html_govde: str, metin_govde: str) -> None:
+def mail_gonder(
+    konu: str,
+    html_govde: str,
+    metin_govde: str,
+    ekler: Optional[Sequence[Tuple[str, bytes, str]]] = None,
+) -> None:
     alicilar = _alicilar()
     if not alicilar:
         raise RuntimeError(
@@ -274,7 +283,13 @@ def mail_gonder(konu: str, html_govde: str, metin_govde: str) -> None:
         gonderen = (os.environ.get("ENTROPY_EMAIL_FROM") or "info@entropywork.com").strip()
         print(f"📧 Mail gönderiliyor (MSA {gonderen}) → {', '.join(alicilar)}")
         for to in alicilar:
-            msa_send_email(to=to, subject=konu, body=metin_govde, html=html_govde)
+            msa_send_email(
+                to=to,
+                subject=konu,
+                body=metin_govde,
+                html=html_govde,
+                attachments=ekler,
+            )
         print("✅ Mail gönderildi.")
         return
 
@@ -290,12 +305,21 @@ def mail_gonder(konu: str, html_govde: str, metin_govde: str) -> None:
     host = (os.environ.get("SMTP_HOST") or "smtp.gmail.com").strip()
     port = int((os.environ.get("SMTP_PORT") or "465").strip())
 
-    msg = MIMEMultipart("alternative")
+    msg = MIMEMultipart("mixed")
     msg["Subject"] = konu
     msg["From"] = formataddr(("EKAP Sabah Bülteni", sender_mail))
     msg["To"] = ", ".join(alicilar)
-    msg.attach(MIMEText(metin_govde, "plain", "utf-8"))
-    msg.attach(MIMEText(html_govde, "html", "utf-8"))
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(metin_govde, "plain", "utf-8"))
+    alt.attach(MIMEText(html_govde, "html", "utf-8"))
+    msg.attach(alt)
+    for ad, veri, mime in ekler or ():
+        ana, _, alt_tip = (mime or "application/octet-stream").partition("/")
+        part = MIMEBase(ana or "application", alt_tip or "octet-stream")
+        part.set_payload(veri)
+        encoders.encode_base64(part)
+        part.add_header("Content-Disposition", "attachment", filename=ad)
+        msg.attach(part)
 
     print(f"📧 Mail gönderiliyor (SMTP_SSL {host}:{port}) → {', '.join(alicilar)}")
     with smtplib.SMTP_SSL(host, port, timeout=30) as server:
@@ -328,6 +352,42 @@ def ekap_tara(
     verileri_kaydet(toplanan, dosya_adi=KAYIT_DOSYASI)
     print(f"✅ API birleşim: {len(ham)} ham, {len(toplanan)} benzersiz kayıt")
     return toplanan, hatalar, meta or {}
+
+
+def _takvim_ve_ics(
+    veriler: Sequence[Dict[str, str]],
+) -> List[Tuple[str, bytes, str]]:
+    """Ortak Google Takvim'e yazar; mail eki için toplu .ics üretir."""
+    ekler: List[Tuple[str, bytes, str]] = []
+    if not veriler:
+        return ekler
+    try:
+        google_takvime_yaz(list(veriler))
+    except Exception as e:
+        print(f"⚠️ Google Takvim senkronu başarısız: {e}", file=sys.stderr)
+    try:
+        ics_bytes = ics_olustur(veriler)
+        ekler.append((ICS_DOSYA_ADI, ics_bytes, "text/calendar"))
+    except Exception as e:
+        print(f"⚠️ ICS dosyası oluşturulamadı: {e}", file=sys.stderr)
+    return ekler
+
+
+def _ics_notu_ekle(html_govde: str, metin: str, ekler: Sequence[Tuple[str, bytes, str]]) -> tuple[str, str]:
+    if not ekler:
+        return html_govde, metin
+    not_html = (
+        '<p style="margin:18px 0 0 0;color:#334155;font-size:13px">'
+        f"Tüm ihaleler e-posta ekindeki <b>{ICS_DOSYA_ADI}</b> dosyasında "
+        "ve ortak Google Takvim'e otomatik işlenmiştir."
+        "</p>"
+    )
+    if "</body>" in html_govde:
+        html_govde = html_govde.replace("</body>", not_html + "</body>", 1)
+    else:
+        html_govde += not_html
+    metin = metin.rstrip() + f"\n\nTakvim eki: {ICS_DOSYA_ADI}\n"
+    return html_govde, metin
 
 
 def _bilgilendirme_gonder(
@@ -407,7 +467,9 @@ def ana_gorev() -> int:
         print("ℹ️ İhale bulunamadı; bilgilendirme maili gönderildi.")
         return 1 if kod_hatalari and len(kod_hatalari) == len(okas_kodlari) else 0
 
-    mail_gonder(konu, html_govde, metin)
+    ekler = _takvim_ve_ics(veriler)
+    html_govde, metin = _ics_notu_ekle(html_govde, metin, ekler)
+    mail_gonder(konu, html_govde, metin, ekler=ekler)
     print(f"✅ Bülten gönderildi ({len(veriler)} benzersiz kayıt, {len(okas_kodlari)} OKAS kodu).")
     return 0
 

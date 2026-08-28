@@ -11,6 +11,7 @@ ekap_arayuz_sonuclar.csv
 ekap_hata_ekrani_sayfa_*.png
 debug_sayfa_*.png
 debug_sayfa_*.html
+gunluk_ekap_ihaleleri.ics
 
 .env
 .env.local

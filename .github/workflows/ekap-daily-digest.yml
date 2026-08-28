@@ -3,6 +3,7 @@
 # Secrets (Settings → Secrets and variables → Actions):
 #   ENTROPY_EMAIL_API_KEY  → MSA API key (gönderen: info@entropywork.com)
 #   EKAP_EMAIL_RECIPIENTS  → virgülle alıcılar (örn: a@x.com,b@y.com)
+#   GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_CALENDAR_ID → ortak takvim
 
 name: EKAP Daily Digest (API, manual)
 
@@ -36,6 +37,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
       - name: Clone ihale-mcp vendor
         run: |
           git clone --depth 1 https://github.com/saidsurucu/ihale-mcp vendor/ihale-mcp
@@ -47,6 +51,8 @@ jobs:
           ENTROPY_EMAIL_API_KEY: ${{ secrets.ENTROPY_EMAIL_API_KEY }}
           ENTROPY_EMAIL_FROM: info@entropywork.com
           EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
         run: |
           set -euo pipefail
           TO="${{ github.event.inputs.recipients }}"
