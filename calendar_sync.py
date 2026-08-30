@@ -127,16 +127,14 @@ def _kisalt(metin: str, limit: int) -> str:
 
 
 def ozet_baslik(kayit: Dict[str, str]) -> str:
-    """[İKN] {İhale Kısa Adı} - {Kurum Adı}"""
-    ikn = ikn_al(kayit) or "-"
+    """{İhale Kısa Adı} - {Kurum Adı}"""
     ad = isin_adi_al(kayit) or "İhale"
     kurum = kurum_al(kayit)
-    prefix = f"[{ikn}] "
     suffix = f" - {kurum}" if kurum else ""
-    budget = 1024 - len(prefix) - len(suffix)
+    budget = 1024 - len(suffix)
     if budget < 8:
-        return _kisalt(f"{prefix}{ad}{suffix}", 1024)
-    return f"{prefix}{_kisalt(ad, budget)}{suffix}"
+        return _kisalt(f"{ad}{suffix}", 1024)
+    return f"{_kisalt(ad, budget)}{suffix}"
 
 
 def aciklama_metni(kayit: Dict[str, str]) -> str:
