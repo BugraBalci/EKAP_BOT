@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Istanbul")
 ICS_DOSYA_ADI = "gunluk_ekap_ihaleleri.ics"
-SCOPES = ("https://www.googleapis.com/auth/calendar",)
+CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 # "11.12.2026 11:00" veya "ANKARA, 11.12.2026 11:00" / "ANKARA / 11.12.2026"
 _DT_RE = re.compile(
@@ -202,33 +202,94 @@ def google_event_body(kayit: Dict[str, str]) -> Optional[Dict[str, Any]]:
     return body
 
 
-def _load_service_account_info() -> Optional[Dict[str, Any]]:
-    raw = (os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()
-    if not raw:
-        cred_path = (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
-        if cred_path and Path(cred_path).is_file():
-            return json.loads(Path(cred_path).read_text(encoding="utf-8"))
-        return None
-
+def _unwrap_secret(raw: str) -> str:
+    raw = (raw or "").strip().lstrip("\ufeff")
     if (raw.startswith("'") and raw.endswith("'")) or (
         raw.startswith('"') and raw.endswith('"')
     ):
         raw = raw[1:-1].strip()
+    return raw
 
-    if raw.startswith("{") or raw.startswith("["):
-        return json.loads(raw)
 
-    path = Path(raw)
-    if path.is_file():
-        return json.loads(path.read_text(encoding="utf-8"))
-
+def _json_loads_sa(raw: str) -> Optional[Dict[str, Any]]:
     try:
-        decoded = base64.b64decode(raw, validate=True).decode("utf-8")
-        if decoded.lstrip().startswith("{"):
-            return json.loads(decoded)
-    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
-        pass
-    return None
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(f"⚠️ GOOGLE_SERVICE_ACCOUNT_JSON json.loads başarısız: {e}")
+        return None
+    if isinstance(parsed, str):
+        try:
+            parsed = json.loads(parsed)
+        except json.JSONDecodeError as e:
+            print(f"⚠️ GOOGLE_SERVICE_ACCOUNT_JSON iç içe JSON çözülemedi: {e}")
+            return None
+    if not isinstance(parsed, dict) or not parsed:
+        print("⚠️ GOOGLE_SERVICE_ACCOUNT_JSON boş veya nesne değil; anonim bağlantı yok.")
+        return None
+    return parsed
+
+
+def _normalize_sa_info(info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    pk = info.get("private_key")
+    if isinstance(pk, str) and "\\n" in pk and "\n" not in pk:
+        info = dict(info)
+        info["private_key"] = pk.replace("\\n", "\n")
+    if (
+        info.get("type") != "service_account"
+        or not (info.get("client_email") or "").strip()
+        or not (info.get("private_key") or "").strip()
+    ):
+        print(
+            "⚠️ GOOGLE_SERVICE_ACCOUNT_JSON service account değil "
+            "(type/client_email/private_key eksik); anonim bağlantı yok."
+        )
+        return None
+    return info
+
+
+def _load_service_account_info() -> Optional[Dict[str, Any]]:
+    """Secret'ı json.loads ile oku. Başarısızsa None; asla boş kimlikle devam etme."""
+    raw = _unwrap_secret(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or "")
+    if not raw:
+        cred_path = (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
+        if cred_path and Path(cred_path).is_file():
+            try:
+                info = json.loads(Path(cred_path).read_text(encoding="utf-8"))
+            except json.JSONDecodeError as e:
+                print(f"⚠️ GOOGLE_APPLICATION_CREDENTIALS json.loads başarısız: {e}")
+                return None
+            if not isinstance(info, dict) or not info:
+                print("⚠️ GOOGLE_APPLICATION_CREDENTIALS boş; anonim bağlantı yok.")
+                return None
+            return _normalize_sa_info(info)
+        print("⚠️ GOOGLE_SERVICE_ACCOUNT_JSON boş; Google Takvim atlandı.")
+        return None
+
+    info: Optional[Dict[str, Any]] = None
+    if raw.startswith("{") or raw.startswith("["):
+        info = _json_loads_sa(raw)
+    else:
+        path = Path(raw)
+        if path.is_file():
+            try:
+                info = json.loads(path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as e:
+                print(f"⚠️ Service account dosyası json.loads başarısız: {e}")
+                return None
+            if not isinstance(info, dict) or not info:
+                print("⚠️ Service account dosyası boş; anonim bağlantı yok.")
+                return None
+        else:
+            try:
+                decoded = base64.b64decode(raw, validate=True).decode("utf-8")
+            except (ValueError, UnicodeDecodeError) as e:
+                print(f"⚠️ GOOGLE_SERVICE_ACCOUNT_JSON JSON/base64 değil: {e}")
+                return None
+            info = _json_loads_sa(decoded)
+
+    if not info:
+        return None
+    return _normalize_sa_info(info)
 
 
 def _calendar_id() -> str:
@@ -236,14 +297,25 @@ def _calendar_id() -> str:
 
 
 def _google_service():
+    """Kimlik yoksa None döner; build() asla credentials olmadan çağrılmaz."""
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
 
     info = _load_service_account_info()
     if not info:
         return None
-    creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
-    return build("calendar", "v3", credentials=creds, cache_discovery=False)
+
+    credentials = service_account.Credentials.from_service_account_info(
+        info,
+        scopes=CALENDAR_SCOPES,
+    )
+    if credentials is None:
+        print("⚠️ Service account kimliği oluşturulamadı; anonim bağlantı yok.")
+        return None
+
+    email = (info.get("client_email") or "").strip()
+    print(f"🔐 Google service account yüklendi: {email}")
+    return build("calendar", "v3", credentials=credentials, static_discovery=True)
 
 
 def _http_status(exc: BaseException) -> Optional[int]:
@@ -262,7 +334,7 @@ def _execute_with_retry(request, retries: int = 4):
         except Exception as e:
             last = e
             status = _http_status(e)
-            if status in {403, 429} and i < retries - 1:
+            if status == 429 and i < retries - 1:
                 time.sleep(2 ** (i + 1))
                 continue
             raise
@@ -297,13 +369,8 @@ def _google_takvime_yaz(
     ozet: Dict[str, Any],
 ) -> Dict[str, Any]:
     cal_id = _calendar_id()
-    has_json = bool((os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip())
-    has_file = bool((os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip())
-    if not cal_id or not (has_json or has_file):
-        print(
-            "ℹ️ Google Takvim atlandı "
-            "(GOOGLE_SERVICE_ACCOUNT_JSON / GOOGLE_CALENDAR_ID yok)."
-        )
+    if not cal_id:
+        print("⚠️ GOOGLE_CALENDAR_ID yok; Google Takvim atlandı.")
         ozet["disabled"] = True
         return ozet
 
@@ -322,7 +389,7 @@ def _google_takvime_yaz(
         return ozet
 
     if service is None:
-        print("ℹ️ Google Takvim atlandı (geçerli service account JSON yok).")
+        print("⚠️ Google Takvim atlandı (geçerli kimlik yok; anonim istek atılmadı).")
         ozet["disabled"] = True
         return ozet
 

@@ -3,9 +3,9 @@
 #   ENTROPY_EMAIL_API_KEY  → MSA API (gönderen: info@entropywork.com)
 #   EKAP_EMAIL_RECIPIENTS veya RECEIVER_MAILS → virgülle alıcılar
 # Yedek SMTP: SENDER_MAIL, SENDER_PASSWORD
-# Google Takvim (calendar_sync.py):
-#   GOOGLE_SERVICE_ACCOUNT_JSON → service account JSON (secret)
-#   GOOGLE_CALENDAR_ID → paylaşılan takvim ID (secret veya variable)
+# Google Takvim (calendar_sync.py) — Run adımı env:
+#   GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+#   GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
 #   Takvimi service account e-postası ile "Etkinlikleri değiştirme" yetkisiyle paylaşın.
 
 name: EKAP Daily API Digest
@@ -28,8 +28,6 @@ jobs:
       SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD || vars.SENDER_PASSWORD }}
       EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS || secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS }}
       RECEIVER_MAILS: ${{ secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS || secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS }}
-      GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-      GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID || vars.GOOGLE_CALENDAR_ID }}
       SAYFA_LIMITI: "0"
     steps:
       - name: Checkout
@@ -54,4 +52,7 @@ jobs:
           uv sync --python 3.12 --directory vendor/ihale-mcp
 
       - name: Run EKAP cron bot
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
         run: python cron_bot.py
