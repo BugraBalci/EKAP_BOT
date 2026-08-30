@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
-"""EKAP ihalelerini ortak Google Takvim'e yazar ve toplu .ics üretir.
+"""EKAP ihalelerini Google Calendar API ile ortak takvime yazar.
 
-Kimlik: GOOGLE_SERVICE_ACCOUNT_JSON (JSON metni, base64 veya dosya yolu)
-Takvim: GOOGLE_CALENDAR_ID (paylaşılan takvimin ID'si)
+Kimlik: GitHub Secrets / env → GOOGLE_SERVICE_ACCOUNT_JSON (JSON, base64 veya dosya yolu)
+Takvim: GOOGLE_CALENDAR_ID
 
-Mükerrer kayıt: İKN'den türetilen sabit Event id (ve private extendedProperties.ekap_ikn).
+API satır şeması (ekap_api_search.tender_to_row):
+  İKN, İşin Adı, Kurum, İhale Tarihi (ihaleTarihSaat), İl, Link
+
+Mükerrer kayıt: İKN'den türetilen sabit Event id + private extendedProperties.ekap_ikn.
+Tarih+saat varsa süreli etkinlik; yalnızca tarih varsa tüm gün (all-day).
 """
 
 from __future__ import annotations
@@ -23,6 +27,8 @@ from zoneinfo import ZoneInfo
 TZ = ZoneInfo("Europe/Istanbul")
 ICS_DOSYA_ADI = "gunluk_ekap_ihaleleri.ics"
 SCOPES = ("https://www.googleapis.com/auth/calendar",)
+
+# "11.12.2026 11:00" veya "ANKARA, 11.12.2026 11:00" / "ANKARA / 11.12.2026"
 _DT_RE = re.compile(
     r"(?P<d>\d{1,2})[./](?P<m>\d{1,2})[./](?P<y>\d{4})"
     r"(?:[ T](?P<H>\d{1,2})[:.](?P<M>\d{2}))?"
@@ -42,11 +48,11 @@ def ikn_al(kayit: Dict[str, str]) -> str:
 
 
 def kurum_al(kayit: Dict[str, str]) -> str:
-    return _kayit_alani(kayit, "Kurum", "İhaleyi Veren Kurum")
+    return _kayit_alani(kayit, "Kurum", "İhaleyi Veren Kurum", "idareAdi")
 
 
 def isin_adi_al(kayit: Dict[str, str]) -> str:
-    return _kayit_alani(kayit, "İşin Adı", "İhale Detayları", "İhale Detayı")
+    return _kayit_alani(kayit, "İşin Adı", "İhale Detayları", "ihaleAdi")
 
 
 def link_al(kayit: Dict[str, str]) -> str:
@@ -60,7 +66,8 @@ def link_al(kayit: Dict[str, str]) -> str:
 
 
 def tarih_metni_al(kayit: Dict[str, str]) -> str:
-    return _kayit_alani(kayit, "İhale Tarihi", "İl / Saat", "İl")
+    """API `İhale Tarihi` (ihaleTarihSaat) öncelikli; yoksa birleşik İl/Saat metni."""
+    return _kayit_alani(kayit, "İhale Tarihi", "ihaleTarihSaat", "İl / Saat")
 
 
 def parse_ihale_datetime(metin: str) -> Tuple[Optional[datetime], bool]:
@@ -120,6 +127,7 @@ def _kisalt(metin: str, limit: int) -> str:
 
 
 def ozet_baslik(kayit: Dict[str, str]) -> str:
+    """[İKN] {İhale Kısa Adı} - {Kurum Adı}"""
     ikn = ikn_al(kayit) or "-"
     ad = isin_adi_al(kayit) or "İhale"
     kurum = kurum_al(kayit)
@@ -150,18 +158,11 @@ def aciklama_metni(kayit: Dict[str, str]) -> str:
     return _kisalt("\n".join(satirlar), 7800)
 
 
-def _baslangic_bitis(
-    kayit: Dict[str, str],
-) -> Tuple[Optional[datetime], bool]:
-    dt, has_time = parse_ihale_datetime(tarih_metni_al(kayit))
-    return dt, has_time
-
-
 def google_event_body(kayit: Dict[str, str]) -> Optional[Dict[str, Any]]:
     ikn = ikn_al(kayit)
     if not ikn:
         return None
-    dt, has_time = _baslangic_bitis(kayit)
+    dt, has_time = parse_ihale_datetime(tarih_metni_al(kayit))
     if dt is None:
         return None
 
@@ -270,15 +271,31 @@ def _execute_with_retry(request, retries: int = 4):
     raise RuntimeError("Google Calendar isteği başarısız.")
 
 
-def google_takvime_yaz(veriler: Sequence[Dict[str, str]]) -> Dict[str, Any]:
-    """Çekilen ihaleleri ortak takvime ekler/günceller. Kimlik yoksa atlar."""
-    ozet = {
+def _bos_ozet(*, disabled: bool = False, errors: int = 0) -> Dict[str, Any]:
+    return {
         "created": 0,
         "updated": 0,
         "skipped": 0,
-        "errors": 0,
-        "disabled": False,
+        "errors": errors,
+        "disabled": disabled,
     }
+
+
+def google_takvime_yaz(veriler: Sequence[Dict[str, str]]) -> Dict[str, Any]:
+    """Çekilen ihaleleri ortak takvime ekler/günceller. Hata olursa yükseltmez."""
+    ozet = _bos_ozet()
+    try:
+        return _google_takvime_yaz(veriler, ozet)
+    except Exception as e:
+        print(f"⚠️ Google Takvim senkronu başarısız: {e}")
+        ozet["errors"] = max(ozet["errors"], 1)
+        return ozet
+
+
+def _google_takvime_yaz(
+    veriler: Sequence[Dict[str, str]],
+    ozet: Dict[str, Any],
+) -> Dict[str, Any]:
     cal_id = _calendar_id()
     has_json = bool((os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip())
     has_file = bool((os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip())
@@ -320,20 +337,19 @@ def google_takvime_yaz(veriler: Sequence[Dict[str, str]]) -> Dict[str, Any]:
             print(f"   ↷ atlandı (İKN/tarih yok): {ikn}")
             continue
         event_id = body["id"]
+        update_body = {k: v for k, v in body.items() if k != "id"}
         try:
+            exists = False
             try:
                 _execute_with_retry(
-                    service.events().insert(
-                        calendarId=cal_id,
-                        body=body,
-                        sendUpdates="none",
-                    )
+                    service.events().get(calendarId=cal_id, eventId=event_id)
                 )
-                ozet["created"] += 1
+                exists = True
             except HttpError as e:
-                if _http_status(e) != 409:
+                if _http_status(e) != 404:
                     raise
-                update_body = {k: v for k, v in body.items() if k != "id"}
+
+            if exists:
                 _execute_with_retry(
                     service.events().update(
                         calendarId=cal_id,
@@ -343,6 +359,28 @@ def google_takvime_yaz(veriler: Sequence[Dict[str, str]]) -> Dict[str, Any]:
                     )
                 )
                 ozet["updated"] += 1
+            else:
+                try:
+                    _execute_with_retry(
+                        service.events().insert(
+                            calendarId=cal_id,
+                            body=body,
+                            sendUpdates="none",
+                        )
+                    )
+                    ozet["created"] += 1
+                except HttpError as e:
+                    if _http_status(e) != 409:
+                        raise
+                    _execute_with_retry(
+                        service.events().update(
+                            calendarId=cal_id,
+                            eventId=event_id,
+                            body=update_body,
+                            sendUpdates="none",
+                        )
+                    )
+                    ozet["updated"] += 1
         except Exception as e:
             ozet["errors"] += 1
             print(f"   ⚠️ {ikn_al(kayit) or event_id}: {e}")
@@ -372,7 +410,7 @@ def _vevent_satirlari(kayit: Dict[str, str]) -> Optional[List[str]]:
     ikn = ikn_al(kayit)
     if not ikn:
         return None
-    dt, has_time = _baslangic_bitis(kayit)
+    dt, has_time = parse_ihale_datetime(tarih_metni_al(kayit))
     if dt is None:
         return None
 
@@ -440,7 +478,7 @@ def _ics_icalendar(veriler: Sequence[Dict[str, str]]) -> Tuple[bytes, int]:
     eklenen = 0
     for kayit in veriler:
         ikn = ikn_al(kayit)
-        dt, has_time = _baslangic_bitis(kayit)
+        dt, has_time = parse_ihale_datetime(tarih_metni_al(kayit))
         if not ikn or dt is None:
             continue
         event = Event()

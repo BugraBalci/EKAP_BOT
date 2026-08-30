@@ -354,17 +354,27 @@ def ekap_tara(
     return toplanan, hatalar, meta or {}
 
 
-def _takvim_ve_ics(
-    veriler: Sequence[Dict[str, str]],
-) -> List[Tuple[str, bytes, str]]:
-    """Ortak Google Takvim'e yazar; mail eki için toplu .ics üretir."""
-    ekler: List[Tuple[str, bytes, str]] = []
+def _takvime_yaz_guvenli(veriler: Sequence[Dict[str, str]]) -> None:
+    """API'den çekilip tekilleştirilen ihaleleri takvime yazar.
+
+    Secret eksikliği veya API hatası botu durdurmaz; mail adımına devam edilir.
+    """
     if not veriler:
-        return ekler
+        return
     try:
         google_takvime_yaz(list(veriler))
     except Exception as e:
         print(f"⚠️ Google Takvim senkronu başarısız: {e}", file=sys.stderr)
+        traceback.print_exc()
+
+
+def _ics_ekleri(
+    veriler: Sequence[Dict[str, str]],
+) -> List[Tuple[str, bytes, str]]:
+    """Mail eki için toplu .ics üretir. Hata olursa boş liste döner."""
+    ekler: List[Tuple[str, bytes, str]] = []
+    if not veriler:
+        return ekler
     try:
         ics_bytes = ics_olustur(veriler)
         ekler.append((ICS_DOSYA_ADI, ics_bytes, "text/calendar"))
@@ -467,7 +477,8 @@ def ana_gorev() -> int:
         print("ℹ️ İhale bulunamadı; bilgilendirme maili gönderildi.")
         return 1 if kod_hatalari and len(kod_hatalari) == len(okas_kodlari) else 0
 
-    ekler = _takvim_ve_ics(veriler)
+    _takvime_yaz_guvenli(veriler)
+    ekler = _ics_ekleri(veriler)
     html_govde, metin = _ics_notu_ekle(html_govde, metin, ekler)
     mail_gonder(konu, html_govde, metin, ekler=ekler)
     print(f"✅ Bülten gönderildi ({len(veriler)} benzersiz kayıt, {len(okas_kodlari)} OKAS kodu).")
