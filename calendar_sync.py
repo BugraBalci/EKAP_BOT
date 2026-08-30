@@ -9,6 +9,7 @@ API satır şeması (ekap_api_search.tender_to_row):
 
 Mükerrer kayıt: İKN'den türetilen sabit Event id + private extendedProperties.ekap_ikn.
 Tarih+saat varsa süreli etkinlik; yalnızca tarih varsa tüm gün (all-day).
+Mevcut etkinlikte [İKN] önekli veya eski özet varsa events.patch ile başlık yenilenir.
 """
 
 from __future__ import annotations
@@ -111,6 +112,10 @@ def parse_ihale_datetime(metin: str) -> Tuple[Optional[datetime], bool]:
     return parsed, False
 
 
+# Eski özet: "[2026/1381058] İhale adı - Kurum"
+_ESKI_IKN_BASLIK_RE = re.compile(r"^\[\s*\d{4}\s*/\s*\d+\s*\]\s+")
+
+
 def event_id_from_ikn(ikn: str) -> str:
     """Google Calendar event id: yalnızca a-v, 0-9, tire, alt çizgi."""
     digest = hashlib.md5(f"ekap-ikn:{ikn.strip()}".encode("utf-8")).hexdigest()
@@ -127,7 +132,7 @@ def _kisalt(metin: str, limit: int) -> str:
 
 
 def ozet_baslik(kayit: Dict[str, str]) -> str:
-    """{İhale Kısa Adı} - {Kurum Adı}"""
+    """{İhale Kısa Adı} - {Kurum Adı} — İKN başlığa yazılmaz."""
     ad = isin_adi_al(kayit) or "İhale"
     kurum = kurum_al(kayit)
     suffix = f" - {kurum}" if kurum else ""
@@ -135,6 +140,27 @@ def ozet_baslik(kayit: Dict[str, str]) -> str:
     if budget < 8:
         return _kisalt(f"{ad}{suffix}", 1024)
     return f"{_kisalt(ad, budget)}{suffix}"
+
+
+def _baslik_eski_ikn_iceriyor(ozet: str) -> bool:
+    return bool(_ESKI_IKN_BASLIK_RE.match((ozet or "").strip()))
+
+
+def _baslik_guncellenmeli(mevcut_ozet: str, yeni_ozet: str) -> bool:
+    """Yeni formattan farklıysa veya eski [İKN] önekini taşıyorsa True."""
+    mevcut = (mevcut_ozet or "").strip()
+    yeni = (yeni_ozet or "").strip()
+    if not yeni:
+        return False
+    return mevcut != yeni or _baslik_eski_ikn_iceriyor(mevcut)
+
+
+def _eski_basliktan_yeni(ozet: str) -> Optional[str]:
+    metin = (ozet or "").strip()
+    yeni = _ESKI_IKN_BASLIK_RE.sub("", metin, count=1).strip()
+    if yeni and yeni != metin:
+        return _kisalt(yeni, 1024)
+    return None
 
 
 def aciklama_metni(kayit: Dict[str, str]) -> str:
@@ -351,6 +377,111 @@ def _bos_ozet(*, disabled: bool = False, errors: int = 0) -> Dict[str, Any]:
     }
 
 
+def _etkinlik_yama(service, cal_id: str, event_id: str, yama: Dict[str, Any]) -> Any:
+    return _execute_with_retry(
+        service.events().patch(
+            calendarId=cal_id,
+            eventId=event_id,
+            body=yama,
+            sendUpdates="none",
+        )
+    )
+
+
+def _etkinlik_getir(service, cal_id: str, event_id: str) -> Optional[Dict[str, Any]]:
+    from googleapiclient.errors import HttpError
+
+    try:
+        return _execute_with_retry(
+            service.events().get(calendarId=cal_id, eventId=event_id)
+        )
+    except HttpError as e:
+        if _http_status(e) == 404:
+            return None
+        raise
+
+
+def _etkinlikleri_listele(
+    service,
+    cal_id: str,
+    *,
+    private_prop: Optional[str] = None,
+    time_min: Optional[str] = None,
+    max_sonuc: int = 250,
+) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
+    page_token: Optional[str] = None
+    while True:
+        kwargs: Dict[str, Any] = {
+            "calendarId": cal_id,
+            "singleEvents": True,
+            "showDeleted": False,
+            "maxResults": max_sonuc,
+        }
+        if private_prop:
+            kwargs["privateExtendedProperty"] = private_prop
+        if time_min:
+            kwargs["timeMin"] = time_min
+        if page_token:
+            kwargs["pageToken"] = page_token
+        resp = _execute_with_retry(service.events().list(**kwargs))
+        items.extend(resp.get("items") or [])
+        page_token = resp.get("nextPageToken")
+        if not page_token:
+            break
+    return items
+
+
+def _mevcut_etkinlikleri_bul(
+    service,
+    cal_id: str,
+    event_id: str,
+    ikn: str,
+) -> List[Dict[str, Any]]:
+    """Aynı ihaleyi Event id veya private extendedProperties.ekap_ikn ile bulur."""
+    mevcut = _etkinlik_getir(service, cal_id, event_id)
+    if mevcut:
+        return [mevcut]
+
+    if not ikn:
+        return []
+    return _etkinlikleri_listele(
+        service,
+        cal_id,
+        private_prop=f"ekap_ikn={ikn}",
+        max_sonuc=10,
+    )
+
+
+def _eski_ikn_basliklarini_temizle(service, cal_id: str, ozet: Dict[str, Any]) -> None:
+    """Takvimde kalan [İKN] önekli başlıkları patch ile yeni formata çevirir."""
+    time_min = (datetime.now(TZ) - timedelta(days=30)).isoformat()
+    try:
+        etkinlikler = _etkinlikleri_listele(service, cal_id, time_min=time_min)
+    except Exception as e:
+        print(f"⚠️ Eski başlık taraması atlandı: {e}")
+        ozet["errors"] += 1
+        return
+
+    temizlenen = 0
+    for ev in etkinlikler:
+        eid = ev.get("id")
+        if not eid:
+            continue
+        yeni = _eski_basliktan_yeni(ev.get("summary") or "")
+        if not yeni:
+            continue
+        try:
+            _etkinlik_yama(service, cal_id, eid, {"summary": yeni})
+            temizlenen += 1
+            ozet["updated"] += 1
+        except Exception as e:
+            ozet["errors"] += 1
+            print(f"   ⚠️ başlık yaması ({eid}): {e}")
+    if temizlenen:
+        print(f"🧹 Eski [İKN] başlığı temizlendi: {temizlenen} etkinlik")
+
+
 def google_takvime_yaz(veriler: Sequence[Dict[str, str]]) -> Dict[str, Any]:
     """Çekilen ihaleleri ortak takvime ekler/günceller. Hata olursa yükseltmez."""
     ozet = _bos_ozet()
@@ -402,27 +533,23 @@ def _google_takvime_yaz(
             print(f"   ↷ atlandı (İKN/tarih yok): {ikn}")
             continue
         event_id = body["id"]
-        update_body = {k: v for k, v in body.items() if k != "id"}
+        yeni_ozet = body["summary"]
+        yama = {k: v for k, v in body.items() if k != "id"}
+        ikn = ikn_al(kayit) or ""
         try:
-            exists = False
-            try:
-                _execute_with_retry(
-                    service.events().get(calendarId=cal_id, eventId=event_id)
-                )
-                exists = True
-            except HttpError as e:
-                if _http_status(e) != 404:
-                    raise
-
-            if exists:
-                _execute_with_retry(
-                    service.events().update(
-                        calendarId=cal_id,
-                        eventId=event_id,
-                        body=update_body,
-                        sendUpdates="none",
-                    )
-                )
+            mevcutlar = _mevcut_etkinlikleri_bul(service, cal_id, event_id, ikn)
+            if mevcutlar:
+                for mevcut in mevcutlar:
+                    hedef_id = mevcut.get("id") or event_id
+                    if _baslik_guncellenmeli(mevcut.get("summary") or "", yeni_ozet):
+                        print(
+                            f"   ✏ başlık güncelleniyor: {ikn} | "
+                            f"{(mevcut.get('summary') or '')[:60]} → {yeni_ozet[:60]}"
+                        )
+                        _etkinlik_yama(
+                            service, cal_id, hedef_id, {"summary": yeni_ozet}
+                        )
+                    _etkinlik_yama(service, cal_id, hedef_id, yama)
                 ozet["updated"] += 1
             else:
                 try:
@@ -437,20 +564,15 @@ def _google_takvime_yaz(
                 except HttpError as e:
                     if _http_status(e) != 409:
                         raise
-                    _execute_with_retry(
-                        service.events().update(
-                            calendarId=cal_id,
-                            eventId=event_id,
-                            body=update_body,
-                            sendUpdates="none",
-                        )
-                    )
+                    _etkinlik_yama(service, cal_id, event_id, yama)
                     ozet["updated"] += 1
         except Exception as e:
             ozet["errors"] += 1
-            print(f"   ⚠️ {ikn_al(kayit) or event_id}: {e}")
+            print(f"   ⚠️ {ikn or event_id}: {e}")
         if i % 25 == 0:
             print(f"   … {i}/{len(veriler)}")
+
+    _eski_ikn_basliklarini_temizle(service, cal_id, ozet)
 
     print(
         "✅ Google Takvim: "
