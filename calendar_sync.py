@@ -3,6 +3,7 @@
 
 Otomatik Google Calendar API yazımı kapalıdır; bot ortak takvime etkinlik yazmaz.
 Kullanıcı maildeki 📅 Takvime Ekle bağlantısıyla kendi takvimine ekler.
+Şablon etkinliği ihaleden 1 hafta önce hatırlatıcı olarak açılır.
 
 API satır şeması (ekap_api_search.tender_to_row):
   İKN, İşin Adı, Kurum, İhale Tarihi (ihaleTarihSaat), İl, Link
@@ -27,6 +28,8 @@ TZ = ZoneInfo("Europe/Istanbul")
 ICS_DOSYA_ADI = "gunluk_ekap_ihaleleri.ics"
 CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar"]
 GOOGLE_CALENDAR_TEMPLATE = "https://calendar.google.com/calendar/render"
+HATIRLATMA_GUN_ONCE = 7
+HATIRLATICI_BASLIK_ONEK = "REMINDER-EKAP: 1 Hafta Sonra İhale Var - "
 
 # "11.12.2026 11:00" veya "ANKARA, 11.12.2026 11:00" / "ANKARA / 11.12.2026"
 _DT_RE = re.compile(
@@ -181,8 +184,31 @@ def aciklama_metni(kayit: Dict[str, str]) -> str:
     return _kisalt("\n".join(satirlar), 7800)
 
 
+def hatirlatici_baslik(kayit: Dict[str, str]) -> str:
+    """Takvime Ekle başlığı: REMINDER-EKAP: 1 Hafta Sonra İhale Var - {İşin Adı}."""
+    ad = isin_adi_al(kayit) or "İhale"
+    budget = 1024 - len(HATIRLATICI_BASLIK_ONEK)
+    return f"{HATIRLATICI_BASLIK_ONEK}{_kisalt(ad, max(budget, 8))}"
+
+
+def hatirlatici_aciklama(kayit: Dict[str, str]) -> str:
+    """Takvime Ekle açıklaması: hatırlatıcı uyarısı + gerçek ihale bilgisi."""
+    tarih = tarih_metni_al(kayit) or "-"
+    ikn = ikn_al(kayit) or "-"
+    kurum = kurum_al(kayit) or "-"
+    link = link_al(kayit) or "-"
+    satirlar = [
+        "⚠️ DİKKAT: Bu bir hatırlatıcıdır!",
+        f"Gerçek İhale Tarihi ve Saati: {tarih}",
+        f"İhale Kayıt No (İKN): {ikn}",
+        f"İdare / Kurum: {kurum}",
+        f"EKAP Bağlantısı: {link}",
+    ]
+    return _kisalt("\n".join(satirlar), 7800)
+
+
 def _google_calendar_dates_param(kayit: Dict[str, str]) -> str:
-    """Google Calendar TEMPLATE dates.
+    """Google Calendar TEMPLATE dates — ihaleden 7 gün önce hatırlatıcı.
 
     Saat varsa YYYYMMDDTHHMMSS/YYYYMMDDTHHMMSS (Europe/Istanbul, ctz ile),
     tüm gün için YYYYMMDD/YYYYMMDD (bitiş günü hariç).
@@ -191,20 +217,25 @@ def _google_calendar_dates_param(kayit: Dict[str, str]) -> str:
     if dt is None:
         gun = datetime.now(TZ).date()
         return f"{gun.strftime('%Y%m%d')}/{(gun + timedelta(days=1)).strftime('%Y%m%d')}"
+    start = dt - timedelta(days=HATIRLATMA_GUN_ONCE)
     if has_time:
-        end = dt + timedelta(hours=1)
-        return f"{dt.strftime('%Y%m%dT%H%M%S')}/{end.strftime('%Y%m%dT%H%M%S')}"
-    gun = dt.date()
+        end = start + timedelta(hours=1)
+        return f"{start.strftime('%Y%m%dT%H%M%S')}/{end.strftime('%Y%m%dT%H%M%S')}"
+    gun = start.date()
     return f"{gun.strftime('%Y%m%d')}/{(gun + timedelta(days=1)).strftime('%Y%m%d')}"
 
 
 def google_calendar_template_url(kayit: Dict[str, str]) -> str:
-    """Kullanıcının kendi takvimine eklemesi için Google Calendar şablon linki."""
+    """Kullanıcının kendi takvimine eklemesi için Google Calendar şablon linki.
+
+    Etkinlik ihaleden 1 hafta önce; başlık ve açıklama hatırlatıcı formatındadır.
+    Türkçe karakterler urllib.parse.quote ile UTF-8 percent-encode edilir.
+    """
     params = [
         ("action", "TEMPLATE"),
-        ("text", ozet_baslik(kayit) or "EKAP İhale"),
+        ("text", hatirlatici_baslik(kayit)),
         ("dates", _google_calendar_dates_param(kayit)),
-        ("details", _kisalt(aciklama_metni(kayit), 1500)),
+        ("details", _kisalt(hatirlatici_aciklama(kayit), 1500)),
         ("location", kurum_al(kayit)),
         ("ctz", "Europe/Istanbul"),
     ]

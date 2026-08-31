@@ -234,7 +234,7 @@ def bulten_html(
             {html_tablo(veriler)}
             <p style="margin:18px 0 0 0;color:#0F766E;font-size:13px">
               Tablodaki <b>📅 Takvime Ekle</b> bağlantısı Google Takvim şablonunu açar;
-              yalnızca istediğiniz ihaleyi kendi takviminize kaydedebilirsiniz.
+              etkinlik ihaleden <b>1 hafta önce</b> hatırlatıcı olarak eklenir.
             </p>
             <p style="margin:18px 0 0 0;color:#64748B;font-size:12px">
               Bu bülten GitHub Actions üzerindeki EKAP API taramasından üretilmiştir.
@@ -390,7 +390,7 @@ def _ics_notu_ekle(html_govde: str, metin: str, ekler: Sequence[Tuple[str, bytes
     not_html = (
         '<p style="margin:18px 0 0 0;color:#334155;font-size:13px">'
         "İstediğiniz ihaleyi tablodaki <b>📅 Takvime Ekle</b> bağlantısıyla "
-        "kendi Google Takviminize ekleyebilirsiniz. "
+        "kendi Google Takviminize <b>1 hafta önce hatırlatıcı</b> olarak ekleyebilirsiniz. "
         f"Toplu içe aktarma için e-posta ekindeki <b>{ICS_DOSYA_ADI}</b> dosyasını kullanın."
         "</p>"
     )
