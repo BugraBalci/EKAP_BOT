@@ -7,9 +7,8 @@ Selenium / headless Chrome kullanılmaz.
 Ortam değişkenleri: ENTROPY_EMAIL_API_KEY, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
 Gönderen: info@entropywork.com (ENTROPY_EMAIL_FROM ile değiştirilebilir).
 İsteğe bağlı SMTP yedek: SENDER_MAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT.
-Google Takvim: GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_CALENDAR_ID.
-AUTO_SYNC_CALENDAR=true olmadıkça ortak takvime toplu yazılmaz; maildeki
-Takvime Ekle bağlantısı kullanılır.
+Google Takvim API'ye otomatik etkinlik yazılmaz; maildeki
+📅 Takvime Ekle bağlantısı kullanılır.
 OKAS_KODU (virgülle kök kodlar; API alt kodları genişletir),
 HARIC_KELIME, SAYFA_LIMITI (0 = tüm sayfalar).
 """
@@ -36,15 +35,16 @@ from calendar_sync import (
     ICS_DOSYA_ADI,
     google_calendar_button_html,
     google_calendar_template_url,
-    google_takvime_yaz,
     ics_olustur,
 )
 from email_provider import ihale_sonuclarini_maile_cevir, send_email as msa_send_email
 
 from okas_defaults import DEFAULT_OKAS_KODLARI
 
-# Kök OKAS kodları (API her kökün alt başlıklarını genişletir).
+# Kök OKAS kodları (API her kökün alt başlıklarını genişletir). 31711000 dahil.
 TARANACAK_OKAS_KODLARI = list(DEFAULT_OKAS_KODLARI)
+if "31711000" not in TARANACAK_OKAS_KODLARI:
+    TARANACAK_OKAS_KODLARI.append("31711000")
 DEFAULT_HARIC = "lisans, araba"
 KAYIT_DOSYASI = "ekap_arayuz_sonuclar.csv"
 DEFAULT_SAYFA_LIMITI = 0
@@ -369,20 +369,6 @@ def ekap_tara(
     return toplanan, hatalar, meta or {}
 
 
-def _takvime_yaz_guvenli(veriler: Sequence[Dict[str, str]]) -> None:
-    """API'den çekilip tekilleştirilen ihaleleri takvime yazar.
-
-    Secret eksikliği veya API hatası botu durdurmaz; mail adımına devam edilir.
-    """
-    if not veriler:
-        return
-    try:
-        google_takvime_yaz(list(veriler))
-    except Exception as e:
-        print(f"⚠️ Google Takvim senkronu başarısız: {e}", file=sys.stderr)
-        traceback.print_exc()
-
-
 def _ics_ekleri(
     veriler: Sequence[Dict[str, str]],
 ) -> List[Tuple[str, bytes, str]]:
@@ -493,7 +479,6 @@ def ana_gorev() -> int:
         print("ℹ️ İhale bulunamadı; bilgilendirme maili gönderildi.")
         return 1 if kod_hatalari and len(kod_hatalari) == len(okas_kodlari) else 0
 
-    _takvime_yaz_guvenli(veriler)
     ekler = _ics_ekleri(veriler)
     html_govde, metin = _ics_notu_ekle(html_govde, metin, ekler)
     mail_gonder(konu, html_govde, metin, ekler=ekler)

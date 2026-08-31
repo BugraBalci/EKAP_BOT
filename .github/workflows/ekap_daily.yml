@@ -3,11 +3,8 @@
 #   ENTROPY_EMAIL_API_KEY  → MSA API (gönderen: info@entropywork.com)
 #   EKAP_EMAIL_RECIPIENTS veya RECEIVER_MAILS → virgülle alıcılar
 # Yedek SMTP: SENDER_MAIL, SENDER_PASSWORD
-# Google Takvim (calendar_sync.py) — Run adımı env:
-#   GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-#   GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
-#   AUTO_SYNC_CALENDAR: vars.AUTO_SYNC_CALENDAR (varsayılan false)
-#   Takvimi service account e-postası ile "Etkinlikleri değiştirme" yetkisiyle paylaşın.
+# Google Takvim API'ye otomatik etkinlik yazılmaz.
+# Kullanıcı maildeki "📅 Takvime Ekle" bağlantısıyla kendi takvimine ekler.
 
 name: EKAP Daily API Digest
 
@@ -53,8 +50,4 @@ jobs:
           uv sync --python 3.12 --directory vendor/ihale-mcp
 
       - name: Run EKAP cron bot
-        env:
-          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          GOOGLE_CALENDAR_ID: ${{ secrets.GOOGLE_CALENDAR_ID }}
-          AUTO_SYNC_CALENDAR: ${{ vars.AUTO_SYNC_CALENDAR || 'false' }}
         run: python cron_bot.py

@@ -17,7 +17,7 @@ import sys
 import traceback
 
 from bot_runner import ekap_botunu_calistir
-from calendar_sync import ICS_DOSYA_ADI, google_takvime_yaz, ics_olustur
+from calendar_sync import ICS_DOSYA_ADI, ics_olustur
 from email_provider import load_dotenv, sonuclari_email_gonder, uyari_mail_gonder
 from okas_defaults import DEFAULT_OKAS_VIRGUL
 
@@ -87,10 +87,6 @@ def main() -> int:
 
     attachments = None
     if veriler:
-        try:
-            google_takvime_yaz(veriler)
-        except Exception as e:
-            print(f"Google Takvim senkronu başarısız: {e}", file=sys.stderr)
         try:
             ics_bytes = ics_olustur(veriler)
             attachments = [(ICS_DOSYA_ADI, ics_bytes, "text/calendar")]

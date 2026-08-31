@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""EKAP ihalelerini Google Calendar API ile ortak takvime yazar.
+"""EKAP ihaleleri için Google Takvim şablon linki ve isteğe bağlı ICS eki.
 
-Kimlik: GitHub Secrets / env → GOOGLE_SERVICE_ACCOUNT_JSON (JSON, base64 veya dosya yolu)
-Takvim: GOOGLE_CALENDAR_ID
+Otomatik Google Calendar API yazımı kapalıdır; bot ortak takvime etkinlik yazmaz.
+Kullanıcı maildeki 📅 Takvime Ekle bağlantısıyla kendi takvimine ekler.
 
 API satır şeması (ekap_api_search.tender_to_row):
   İKN, İşin Adı, Kurum, İhale Tarihi (ihaleTarihSaat), İl, Link
-
-Mükerrer kayıt: İKN'den türetilen sabit Event id + private extendedProperties.ekap_ikn.
-Tarih+saat varsa süreli etkinlik; yalnızca tarih varsa tüm gün (all-day).
-Mevcut etkinlikte [İKN] önekli veya eski özet varsa events.patch ile başlık yenilenir.
 """
 
 from __future__ import annotations
@@ -185,40 +181,31 @@ def aciklama_metni(kayit: Dict[str, str]) -> str:
     return _kisalt("\n".join(satirlar), 7800)
 
 
-def auto_sync_calendar_enabled() -> bool:
-    """AUTO_SYNC_CALENDAR=true olmadıkça ortak takvime toplu yazılmaz."""
-    raw = (os.environ.get("AUTO_SYNC_CALENDAR") or "false").strip().lower()
-    return raw in ("1", "true", "yes", "on")
-
-
 def _google_calendar_dates_param(kayit: Dict[str, str]) -> str:
-    """Google Calendar TEMPLATE dates: timed UTC veya tüm gün (bitiş hariç)."""
+    """Google Calendar TEMPLATE dates.
+
+    Saat varsa YYYYMMDDTHHMMSS/YYYYMMDDTHHMMSS (Europe/Istanbul, ctz ile),
+    tüm gün için YYYYMMDD/YYYYMMDD (bitiş günü hariç).
+    """
     dt, has_time = parse_ihale_datetime(tarih_metni_al(kayit))
     if dt is None:
         gun = datetime.now(TZ).date()
         return f"{gun.strftime('%Y%m%d')}/{(gun + timedelta(days=1)).strftime('%Y%m%d')}"
     if has_time:
-        start_utc = dt.replace(tzinfo=TZ).astimezone(timezone.utc)
-        end_utc = start_utc + timedelta(hours=1)
-        return (
-            f"{start_utc.strftime('%Y%m%dT%H%M%SZ')}/"
-            f"{end_utc.strftime('%Y%m%dT%H%M%SZ')}"
-        )
+        end = dt + timedelta(hours=1)
+        return f"{dt.strftime('%Y%m%dT%H%M%S')}/{end.strftime('%Y%m%dT%H%M%S')}"
     gun = dt.date()
     return f"{gun.strftime('%Y%m%d')}/{(gun + timedelta(days=1)).strftime('%Y%m%d')}"
 
 
 def google_calendar_template_url(kayit: Dict[str, str]) -> str:
     """Kullanıcının kendi takvimine eklemesi için Google Calendar şablon linki."""
-    il = _kayit_alani(kayit, "İl")
-    kurum = kurum_al(kayit)
-    location = " — ".join(p for p in (il, kurum) if p)
     params = [
         ("action", "TEMPLATE"),
         ("text", ozet_baslik(kayit) or "EKAP İhale"),
         ("dates", _google_calendar_dates_param(kayit)),
         ("details", _kisalt(aciklama_metni(kayit), 1500)),
-        ("location", location),
+        ("location", kurum_al(kayit)),
         ("ctz", "Europe/Istanbul"),
     ]
     return f"{GOOGLE_CALENDAR_TEMPLATE}?{urlencode(params, quote_via=quote)}"
@@ -537,20 +524,12 @@ def _eski_ikn_basliklarini_temizle(service, cal_id: str, ozet: Dict[str, Any]) -
 
 
 def google_takvime_yaz(veriler: Sequence[Dict[str, str]]) -> Dict[str, Any]:
-    """Çekilen ihaleleri ortak takvime ekler/günceller. Hata olursa yükseltmez."""
-    if not auto_sync_calendar_enabled():
-        print(
-            "ℹ️ AUTO_SYNC_CALENDAR kapalı; ortak takvime yazılmadı. "
-            "Maildeki 📅 Takvime Ekle bağlantısını kullanın."
-        )
-        return _bos_ozet(disabled=True)
-    ozet = _bos_ozet()
-    try:
-        return _google_takvime_yaz(veriler, ozet)
-    except Exception as e:
-        print(f"⚠️ Google Takvim senkronu başarısız: {e}")
-        ozet["errors"] = max(ozet["errors"], 1)
-        return ozet
+    """Otomatik takvim yazımı kapatıldı; Google Calendar API'ye etkinlik yazılmaz."""
+    print(
+        "ℹ️ Otomatik Google Takvim yazımı kapalı; ortak takvime yazılmadı. "
+        "Maildeki 📅 Takvime Ekle bağlantısını kullanın."
+    )
+    return _bos_ozet(disabled=True)
 
 
 def _google_takvime_yaz(
