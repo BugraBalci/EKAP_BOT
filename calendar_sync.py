@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""EKAP ihaleleri için Google Takvim şablon linki ve isteğe bağlı ICS eki.
+"""EKAP ihaleleri için Google Takvim şablon linki (kullanıcı elle ekler).
 
-Otomatik Google Calendar API yazımı kapalıdır; bot ortak takvime etkinlik yazmaz.
-Kullanıcı maildeki 📅 Takvime Ekle bağlantısıyla kendi takvimine ekler.
-Şablon etkinliği ihaleden 1 hafta önce hatırlatıcı olarak açılır.
+Otomatik Google Calendar API yazımı kökten kapalıdır. Bot hiçbir Calendar ID'ye
+etkinlik basmaz; takvim boş kalır. Kullanıcı yalnızca maildeki
+📅 Takvime Ekle bağlantısıyla (calendar/render?action=TEMPLATE) kendi
+takvimine, ihaleden 7 gün önce 1 saatlik hatırlatıcı ekler.
 
 API satır şeması (ekap_api_search.tender_to_row):
   İKN, İşin Adı, Kurum, İhale Tarihi (ihaleTarihSaat), İl, Link
@@ -11,22 +12,17 @@ API satır şeması (ekap_api_search.tender_to_row):
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import html
-import json
-import os
 import re
-import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-from urllib.parse import quote, urlencode
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Istanbul")
 ICS_DOSYA_ADI = "gunluk_ekap_ihaleleri.ics"
-CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar"]
 GOOGLE_CALENDAR_TEMPLATE = "https://calendar.google.com/calendar/render"
 HATIRLATMA_GUN_ONCE = 7
 HATIRLATICI_BASLIK_ONEK = "REMINDER-EKAP: 1 Hafta Sonra İhale Var - "
@@ -56,6 +52,15 @@ def kurum_al(kayit: Dict[str, str]) -> str:
 
 def isin_adi_al(kayit: Dict[str, str]) -> str:
     return _kayit_alani(kayit, "İşin Adı", "İhale Detayları", "ihaleAdi")
+
+
+def il_al(kayit: Dict[str, str]) -> str:
+    return _kayit_alani(kayit, "İl")
+
+
+def konum_al(kayit: Dict[str, str]) -> str:
+    """Takvim konumu: kurum varsa kurum, yoksa il."""
+    return kurum_al(kayit) or il_al(kayit)
 
 
 def link_al(kayit: Dict[str, str]) -> str:
@@ -114,12 +119,7 @@ def parse_ihale_datetime(metin: str) -> Tuple[Optional[datetime], bool]:
     return parsed, False
 
 
-# Eski özet: "[2026/1381058] İhale adı - Kurum"
-_ESKI_IKN_BASLIK_RE = re.compile(r"^\[\s*\d{4}\s*/\s*\d+\s*\]\s+")
-
-
 def event_id_from_ikn(ikn: str) -> str:
-    """Google Calendar event id: yalnızca a-v, 0-9, tire, alt çizgi."""
     digest = hashlib.md5(f"ekap-ikn:{ikn.strip()}".encode("utf-8")).hexdigest()
     return f"ekap{digest}"
 
@@ -134,7 +134,7 @@ def _kisalt(metin: str, limit: int) -> str:
 
 
 def ozet_baslik(kayit: Dict[str, str]) -> str:
-    """{İhale Kısa Adı} - {Kurum Adı} — İKN başlığa yazılmaz."""
+    """ICS özeti: {İhale Kısa Adı} - {Kurum Adı}."""
     ad = isin_adi_al(kayit) or "İhale"
     kurum = kurum_al(kayit)
     suffix = f" - {kurum}" if kurum else ""
@@ -144,33 +144,12 @@ def ozet_baslik(kayit: Dict[str, str]) -> str:
     return f"{_kisalt(ad, budget)}{suffix}"
 
 
-def _baslik_eski_ikn_iceriyor(ozet: str) -> bool:
-    return bool(_ESKI_IKN_BASLIK_RE.match((ozet or "").strip()))
-
-
-def _baslik_guncellenmeli(mevcut_ozet: str, yeni_ozet: str) -> bool:
-    """Yeni formattan farklıysa veya eski [İKN] önekini taşıyorsa True."""
-    mevcut = (mevcut_ozet or "").strip()
-    yeni = (yeni_ozet or "").strip()
-    if not yeni:
-        return False
-    return mevcut != yeni or _baslik_eski_ikn_iceriyor(mevcut)
-
-
-def _eski_basliktan_yeni(ozet: str) -> Optional[str]:
-    metin = (ozet or "").strip()
-    yeni = _ESKI_IKN_BASLIK_RE.sub("", metin, count=1).strip()
-    if yeni and yeni != metin:
-        return _kisalt(yeni, 1024)
-    return None
-
-
 def aciklama_metni(kayit: Dict[str, str]) -> str:
     ikn = ikn_al(kayit) or "-"
     ad = isin_adi_al(kayit) or "-"
     kurum = kurum_al(kayit) or "-"
     tarih = tarih_metni_al(kayit) or "-"
-    il = _kayit_alani(kayit, "İl")
+    il = il_al(kayit)
     link = link_al(kayit) or "-"
     satirlar = [
         f"İhale Detayı: {ad}",
@@ -192,54 +171,58 @@ def hatirlatici_baslik(kayit: Dict[str, str]) -> str:
 
 
 def hatirlatici_aciklama(kayit: Dict[str, str]) -> str:
-    """Takvime Ekle açıklaması: hatırlatıcı uyarısı + gerçek ihale bilgisi."""
+    """Takvime Ekle açıklaması — 7 gün öncesi hatırlatıcı metni."""
     tarih = tarih_metni_al(kayit) or "-"
     ikn = ikn_al(kayit) or "-"
     kurum = kurum_al(kayit) or "-"
     link = link_al(kayit) or "-"
-    satirlar = [
-        "⚠️ DİKKAT: Bu bir hatırlatıcıdır!",
-        f"Gerçek İhale Tarihi ve Saati: {tarih}",
-        f"İhale Kayıt No (İKN): {ikn}",
-        f"İdare / Kurum: {kurum}",
-        f"EKAP Bağlantısı: {link}",
-    ]
-    return _kisalt("\n".join(satirlar), 7800)
+    return (
+        "⚠️ DİKKAT: Bu etkinlik 1 hafta önceden hatırlatıcıdır!\n"
+        f"Gerçek İhale Tarihi ve Saati: {tarih}\n"
+        f"İKN: {ikn}\n"
+        f"Kurum: {kurum}\n"
+        f"EKAP Bağlantısı: {link}"
+    )
+
+
+def _quote_tr(deger: str) -> str:
+    """UTF-8 percent-encode; Türkçe karakterler bozulmaz, boşluk %20 olur."""
+    return quote(deger or "", safe="", encoding="utf-8", errors="strict")
 
 
 def _google_calendar_dates_param(kayit: Dict[str, str]) -> str:
-    """Google Calendar TEMPLATE dates — ihaleden 7 gün önce hatırlatıcı.
+    """TEMPLATE dates: ihale_tarihi - 7 gün, aynı saat, 1 saat süre.
 
-    Saat varsa YYYYMMDDTHHMMSS/YYYYMMDDTHHMMSS (Europe/Istanbul, ctz ile),
-    tüm gün için YYYYMMDD/YYYYMMDD (bitiş günü hariç).
+    YYYYMMDDTHHMMSS/YYYYMMDDTHHMMSS (Europe/Istanbul, ctz ile).
+    Saat yoksa 00:00'dan 1 saat. Tarih yoksa bugünün 1 saatlik aralığı.
     """
-    dt, has_time = parse_ihale_datetime(tarih_metni_al(kayit))
+    dt, _has_time = parse_ihale_datetime(tarih_metni_al(kayit))
     if dt is None:
-        gun = datetime.now(TZ).date()
-        return f"{gun.strftime('%Y%m%d')}/{(gun + timedelta(days=1)).strftime('%Y%m%d')}"
-    start = dt - timedelta(days=HATIRLATMA_GUN_ONCE)
-    if has_time:
-        end = start + timedelta(hours=1)
-        return f"{start.strftime('%Y%m%dT%H%M%S')}/{end.strftime('%Y%m%dT%H%M%S')}"
-    gun = start.date()
-    return f"{gun.strftime('%Y%m%d')}/{(gun + timedelta(days=1)).strftime('%Y%m%d')}"
+        start = datetime.now(TZ).replace(second=0, microsecond=0).replace(tzinfo=None)
+    else:
+        start = dt - timedelta(days=HATIRLATMA_GUN_ONCE)
+    end = start + timedelta(hours=1)
+    return f"{start.strftime('%Y%m%dT%H%M%S')}/{end.strftime('%Y%m%dT%H%M%S')}"
 
 
 def google_calendar_template_url(kayit: Dict[str, str]) -> str:
     """Kullanıcının kendi takvimine eklemesi için Google Calendar şablon linki.
 
-    Etkinlik ihaleden 1 hafta önce; başlık ve açıklama hatırlatıcı formatındadır.
-    Türkçe karakterler urllib.parse.quote ile UTF-8 percent-encode edilir.
+    Parametreler urllib.parse.quote ile UTF-8 encode edilir (quote_plus/+ kullanılmaz).
+    dates ve ctz içindeki '/' kırılmasın diye encode edilmez.
     """
-    params = [
-        ("action", "TEMPLATE"),
-        ("text", hatirlatici_baslik(kayit)),
-        ("dates", _google_calendar_dates_param(kayit)),
-        ("details", _kisalt(hatirlatici_aciklama(kayit), 1500)),
-        ("location", kurum_al(kayit)),
-        ("ctz", "Europe/Istanbul"),
-    ]
-    return f"{GOOGLE_CALENDAR_TEMPLATE}?{urlencode(params, quote_via=quote)}"
+    text = _quote_tr(hatirlatici_baslik(kayit))
+    details = _quote_tr(hatirlatici_aciklama(kayit))
+    location = _quote_tr(konum_al(kayit))
+    dates = _google_calendar_dates_param(kayit)
+    return (
+        f"{GOOGLE_CALENDAR_TEMPLATE}?action=TEMPLATE"
+        f"&text={text}"
+        f"&dates={dates}"
+        f"&details={details}"
+        f"&location={location}"
+        f"&ctz=Europe/Istanbul"
+    )
 
 
 def google_calendar_button_html(kayit: Dict[str, str]) -> str:
@@ -254,402 +237,19 @@ def google_calendar_button_html(kayit: Dict[str, str]) -> str:
     )
 
 
-def google_event_body(kayit: Dict[str, str]) -> Optional[Dict[str, Any]]:
-    ikn = ikn_al(kayit)
-    if not ikn:
-        return None
-    dt, has_time = parse_ihale_datetime(tarih_metni_al(kayit))
-    if dt is None:
-        return None
-
-    start: Dict[str, str]
-    end: Dict[str, str]
-    if has_time:
-        start_local = dt.replace(tzinfo=TZ)
-        end_local = start_local + timedelta(hours=1)
-        fmt = "%Y-%m-%dT%H:%M:%S"
-        start = {"dateTime": start_local.strftime(fmt), "timeZone": "Europe/Istanbul"}
-        end = {"dateTime": end_local.strftime(fmt), "timeZone": "Europe/Istanbul"}
-    else:
-        gun = dt.date()
-        start = {"date": gun.isoformat()}
-        end = {"date": (gun + timedelta(days=1)).isoformat()}
-
-    link = link_al(kayit)
-    body: Dict[str, Any] = {
-        "id": event_id_from_ikn(ikn),
-        "summary": ozet_baslik(kayit),
-        "description": aciklama_metni(kayit),
-        "start": start,
-        "end": end,
-        "status": "confirmed",
-        "extendedProperties": {
-            "private": {
-                "ekap_ikn": ikn,
-                "ekap_source": "ekap-bot",
-            }
-        },
-    }
-    il = _kayit_alani(kayit, "İl")
-    if il:
-        body["location"] = il
-    if link:
-        body["source"] = {"title": "EKAP", "url": link}
-    return body
-
-
-def _unwrap_secret(raw: str) -> str:
-    raw = (raw or "").strip().lstrip("\ufeff")
-    if (raw.startswith("'") and raw.endswith("'")) or (
-        raw.startswith('"') and raw.endswith('"')
-    ):
-        raw = raw[1:-1].strip()
-    return raw
-
-
-def _json_loads_sa(raw: str) -> Optional[Dict[str, Any]]:
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as e:
-        print(f"⚠️ GOOGLE_SERVICE_ACCOUNT_JSON json.loads başarısız: {e}")
-        return None
-    if isinstance(parsed, str):
-        try:
-            parsed = json.loads(parsed)
-        except json.JSONDecodeError as e:
-            print(f"⚠️ GOOGLE_SERVICE_ACCOUNT_JSON iç içe JSON çözülemedi: {e}")
-            return None
-    if not isinstance(parsed, dict) or not parsed:
-        print("⚠️ GOOGLE_SERVICE_ACCOUNT_JSON boş veya nesne değil; anonim bağlantı yok.")
-        return None
-    return parsed
-
-
-def _normalize_sa_info(info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    pk = info.get("private_key")
-    if isinstance(pk, str) and "\\n" in pk and "\n" not in pk:
-        info = dict(info)
-        info["private_key"] = pk.replace("\\n", "\n")
-    if (
-        info.get("type") != "service_account"
-        or not (info.get("client_email") or "").strip()
-        or not (info.get("private_key") or "").strip()
-    ):
-        print(
-            "⚠️ GOOGLE_SERVICE_ACCOUNT_JSON service account değil "
-            "(type/client_email/private_key eksik); anonim bağlantı yok."
-        )
-        return None
-    return info
-
-
-def _load_service_account_info() -> Optional[Dict[str, Any]]:
-    """Secret'ı json.loads ile oku. Başarısızsa None; asla boş kimlikle devam etme."""
-    raw = _unwrap_secret(os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON") or "")
-    if not raw:
-        cred_path = (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
-        if cred_path and Path(cred_path).is_file():
-            try:
-                info = json.loads(Path(cred_path).read_text(encoding="utf-8"))
-            except json.JSONDecodeError as e:
-                print(f"⚠️ GOOGLE_APPLICATION_CREDENTIALS json.loads başarısız: {e}")
-                return None
-            if not isinstance(info, dict) or not info:
-                print("⚠️ GOOGLE_APPLICATION_CREDENTIALS boş; anonim bağlantı yok.")
-                return None
-            return _normalize_sa_info(info)
-        print("⚠️ GOOGLE_SERVICE_ACCOUNT_JSON boş; Google Takvim atlandı.")
-        return None
-
-    info: Optional[Dict[str, Any]] = None
-    if raw.startswith("{") or raw.startswith("["):
-        info = _json_loads_sa(raw)
-    else:
-        path = Path(raw)
-        if path.is_file():
-            try:
-                info = json.loads(path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError as e:
-                print(f"⚠️ Service account dosyası json.loads başarısız: {e}")
-                return None
-            if not isinstance(info, dict) or not info:
-                print("⚠️ Service account dosyası boş; anonim bağlantı yok.")
-                return None
-        else:
-            try:
-                decoded = base64.b64decode(raw, validate=True).decode("utf-8")
-            except (ValueError, UnicodeDecodeError) as e:
-                print(f"⚠️ GOOGLE_SERVICE_ACCOUNT_JSON JSON/base64 değil: {e}")
-                return None
-            info = _json_loads_sa(decoded)
-
-    if not info:
-        return None
-    return _normalize_sa_info(info)
-
-
-def _calendar_id() -> str:
-    return (os.environ.get("GOOGLE_CALENDAR_ID") or "").strip()
-
-
-def _google_service():
-    """Kimlik yoksa None döner; build() asla credentials olmadan çağrılmaz."""
-    from google.oauth2 import service_account
-    from googleapiclient.discovery import build
-
-    info = _load_service_account_info()
-    if not info:
-        return None
-
-    credentials = service_account.Credentials.from_service_account_info(
-        info,
-        scopes=CALENDAR_SCOPES,
+def google_takvime_yaz(veriler: Sequence[Dict[str, str]]) -> Dict[str, Any]:
+    """Otomatik takvim yazımı kökten kapalıdır; Calendar API asla çağrılmaz."""
+    print(
+        "ℹ️ Otomatik Google Takvim yazımı kapalı; Calendar API çağrılmadı. "
+        "Maildeki 📅 Takvime Ekle bağlantısını kullanın."
     )
-    if credentials is None:
-        print("⚠️ Service account kimliği oluşturulamadı; anonim bağlantı yok.")
-        return None
-
-    email = (info.get("client_email") or "").strip()
-    print(f"🔐 Google service account yüklendi: {email}")
-    return build("calendar", "v3", credentials=credentials, static_discovery=True)
-
-
-def _http_status(exc: BaseException) -> Optional[int]:
-    resp = getattr(exc, "resp", None)
-    status = getattr(resp, "status", None)
-    if status is not None:
-        return int(status)
-    return None
-
-
-def _execute_with_retry(request, retries: int = 4):
-    last: Optional[BaseException] = None
-    for i in range(retries):
-        try:
-            return request.execute()
-        except Exception as e:
-            last = e
-            status = _http_status(e)
-            if status == 429 and i < retries - 1:
-                time.sleep(2 ** (i + 1))
-                continue
-            raise
-    if last:
-        raise last
-    raise RuntimeError("Google Calendar isteği başarısız.")
-
-
-def _bos_ozet(*, disabled: bool = False, errors: int = 0) -> Dict[str, Any]:
     return {
         "created": 0,
         "updated": 0,
-        "skipped": 0,
-        "errors": errors,
-        "disabled": disabled,
+        "skipped": len(veriler),
+        "errors": 0,
+        "disabled": True,
     }
-
-
-def _etkinlik_yama(service, cal_id: str, event_id: str, yama: Dict[str, Any]) -> Any:
-    return _execute_with_retry(
-        service.events().patch(
-            calendarId=cal_id,
-            eventId=event_id,
-            body=yama,
-            sendUpdates="none",
-        )
-    )
-
-
-def _etkinlik_getir(service, cal_id: str, event_id: str) -> Optional[Dict[str, Any]]:
-    from googleapiclient.errors import HttpError
-
-    try:
-        return _execute_with_retry(
-            service.events().get(calendarId=cal_id, eventId=event_id)
-        )
-    except HttpError as e:
-        if _http_status(e) == 404:
-            return None
-        raise
-
-
-def _etkinlikleri_listele(
-    service,
-    cal_id: str,
-    *,
-    private_prop: Optional[str] = None,
-    time_min: Optional[str] = None,
-    max_sonuc: int = 250,
-) -> List[Dict[str, Any]]:
-    items: List[Dict[str, Any]] = []
-    page_token: Optional[str] = None
-    while True:
-        kwargs: Dict[str, Any] = {
-            "calendarId": cal_id,
-            "singleEvents": True,
-            "showDeleted": False,
-            "maxResults": max_sonuc,
-        }
-        if private_prop:
-            kwargs["privateExtendedProperty"] = private_prop
-        if time_min:
-            kwargs["timeMin"] = time_min
-        if page_token:
-            kwargs["pageToken"] = page_token
-        resp = _execute_with_retry(service.events().list(**kwargs))
-        items.extend(resp.get("items") or [])
-        page_token = resp.get("nextPageToken")
-        if not page_token:
-            break
-    return items
-
-
-def _mevcut_etkinlikleri_bul(
-    service,
-    cal_id: str,
-    event_id: str,
-    ikn: str,
-) -> List[Dict[str, Any]]:
-    """Aynı ihaleyi Event id veya private extendedProperties.ekap_ikn ile bulur."""
-    mevcut = _etkinlik_getir(service, cal_id, event_id)
-    if mevcut:
-        return [mevcut]
-
-    if not ikn:
-        return []
-    return _etkinlikleri_listele(
-        service,
-        cal_id,
-        private_prop=f"ekap_ikn={ikn}",
-        max_sonuc=10,
-    )
-
-
-def _eski_ikn_basliklarini_temizle(service, cal_id: str, ozet: Dict[str, Any]) -> None:
-    """Takvimde kalan [İKN] önekli başlıkları patch ile yeni formata çevirir."""
-    time_min = (datetime.now(TZ) - timedelta(days=30)).isoformat()
-    try:
-        etkinlikler = _etkinlikleri_listele(service, cal_id, time_min=time_min)
-    except Exception as e:
-        print(f"⚠️ Eski başlık taraması atlandı: {e}")
-        ozet["errors"] += 1
-        return
-
-    temizlenen = 0
-    for ev in etkinlikler:
-        eid = ev.get("id")
-        if not eid:
-            continue
-        yeni = _eski_basliktan_yeni(ev.get("summary") or "")
-        if not yeni:
-            continue
-        try:
-            _etkinlik_yama(service, cal_id, eid, {"summary": yeni})
-            temizlenen += 1
-            ozet["updated"] += 1
-        except Exception as e:
-            ozet["errors"] += 1
-            print(f"   ⚠️ başlık yaması ({eid}): {e}")
-    if temizlenen:
-        print(f"🧹 Eski [İKN] başlığı temizlendi: {temizlenen} etkinlik")
-
-
-def google_takvime_yaz(veriler: Sequence[Dict[str, str]]) -> Dict[str, Any]:
-    """Otomatik takvim yazımı kapatıldı; Google Calendar API'ye etkinlik yazılmaz."""
-    print(
-        "ℹ️ Otomatik Google Takvim yazımı kapalı; ortak takvime yazılmadı. "
-        "Maildeki 📅 Takvime Ekle bağlantısını kullanın."
-    )
-    return _bos_ozet(disabled=True)
-
-
-def _google_takvime_yaz(
-    veriler: Sequence[Dict[str, str]],
-    ozet: Dict[str, Any],
-) -> Dict[str, Any]:
-    cal_id = _calendar_id()
-    if not cal_id:
-        print("⚠️ GOOGLE_CALENDAR_ID yok; Google Takvim atlandı.")
-        ozet["disabled"] = True
-        return ozet
-
-    try:
-        service = _google_service()
-    except ImportError:
-        print(
-            "⚠️ google-api-python-client / google-auth yüklü değil; "
-            "Takvim senkronu atlandı."
-        )
-        ozet["disabled"] = True
-        return ozet
-    except Exception as e:
-        print(f"⚠️ Google Takvim kimliği okunamadı: {e}")
-        ozet["errors"] += 1
-        return ozet
-
-    if service is None:
-        print("⚠️ Google Takvim atlandı (geçerli kimlik yok; anonim istek atılmadı).")
-        ozet["disabled"] = True
-        return ozet
-
-    from googleapiclient.errors import HttpError
-
-    print(f"📅 Google Takvim senkronu başlıyor ({len(veriler)} ihale) → {cal_id}")
-    for i, kayit in enumerate(veriler, start=1):
-        body = google_event_body(kayit)
-        if body is None:
-            ozet["skipped"] += 1
-            ikn = ikn_al(kayit) or "?"
-            print(f"   ↷ atlandı (İKN/tarih yok): {ikn}")
-            continue
-        event_id = body["id"]
-        yeni_ozet = body["summary"]
-        yama = {k: v for k, v in body.items() if k != "id"}
-        ikn = ikn_al(kayit) or ""
-        try:
-            mevcutlar = _mevcut_etkinlikleri_bul(service, cal_id, event_id, ikn)
-            if mevcutlar:
-                for mevcut in mevcutlar:
-                    hedef_id = mevcut.get("id") or event_id
-                    if _baslik_guncellenmeli(mevcut.get("summary") or "", yeni_ozet):
-                        print(
-                            f"   ✏ başlık güncelleniyor: {ikn} | "
-                            f"{(mevcut.get('summary') or '')[:60]} → {yeni_ozet[:60]}"
-                        )
-                        _etkinlik_yama(
-                            service, cal_id, hedef_id, {"summary": yeni_ozet}
-                        )
-                    _etkinlik_yama(service, cal_id, hedef_id, yama)
-                ozet["updated"] += 1
-            else:
-                try:
-                    _execute_with_retry(
-                        service.events().insert(
-                            calendarId=cal_id,
-                            body=body,
-                            sendUpdates="none",
-                        )
-                    )
-                    ozet["created"] += 1
-                except HttpError as e:
-                    if _http_status(e) != 409:
-                        raise
-                    _etkinlik_yama(service, cal_id, event_id, yama)
-                    ozet["updated"] += 1
-        except Exception as e:
-            ozet["errors"] += 1
-            print(f"   ⚠️ {ikn or event_id}: {e}")
-        if i % 25 == 0:
-            print(f"   … {i}/{len(veriler)}")
-
-    _eski_ikn_basliklarini_temizle(service, cal_id, ozet)
-
-    print(
-        "✅ Google Takvim: "
-        f"yeni={ozet['created']} güncellenen={ozet['updated']} "
-        f"atlanan={ozet['skipped']} hata={ozet['errors']}"
-    )
-    return ozet
 
 
 def _ics_escape(metin: str) -> str:
@@ -692,9 +292,9 @@ def _vevent_satirlari(kayit: Dict[str, str]) -> Optional[List[str]]:
     link = link_al(kayit)
     if link:
         satirlar.append(f"URL:{_ics_escape(link)}")
-    il = _kayit_alani(kayit, "İl")
-    if il:
-        satirlar.append(f"LOCATION:{_ics_escape(il)}")
+    konum = konum_al(kayit)
+    if konum:
+        satirlar.append(f"LOCATION:{_ics_escape(konum)}")
     satirlar.append("END:VEVENT")
     return satirlar
 
@@ -754,9 +354,9 @@ def _ics_icalendar(veriler: Sequence[Dict[str, str]]) -> Tuple[bytes, int]:
         link = link_al(kayit)
         if link:
             event.add("url", link)
-        il = _kayit_alani(kayit, "İl")
-        if il:
-            event.add("location", il)
+        konum = konum_al(kayit)
+        if konum:
+            event.add("location", konum)
         cal.add_component(event)
         eklenen += 1
     return cal.to_ical(), eklenen

@@ -37,6 +37,10 @@ from calendar_sync import (
     google_calendar_template_url,
     ics_olustur,
 )
+
+# google_takvime_yaz / Google Calendar API bilinçli olarak import edilmez ve
+# hiçbir Calendar ID'ye etkinlik yazılmaz. Takvim yalnızca maildeki
+# 📅 Takvime Ekle şablon linkiyle kullanıcı tarafından doldurulur.
 from email_provider import ihale_sonuclarini_maile_cevir, send_email as msa_send_email
 
 from okas_defaults import DEFAULT_OKAS_KODLARI
@@ -234,7 +238,8 @@ def bulten_html(
             {html_tablo(veriler)}
             <p style="margin:18px 0 0 0;color:#0F766E;font-size:13px">
               Tablodaki <b>📅 Takvime Ekle</b> bağlantısı Google Takvim şablonunu açar;
-              etkinlik ihaleden <b>1 hafta önce</b> hatırlatıcı olarak eklenir.
+              etkinlik ihaleden <b>7 gün önce</b>, aynı saatte 1 saatlik hatırlatıcı olarak eklenir.
+              Bot takvime otomatik yazmaz; yalnızca ilgilendiğiniz ihaleyi siz ekleyin.
             </p>
             <p style="margin:18px 0 0 0;color:#64748B;font-size:12px">
               Bu bülten GitHub Actions üzerindeki EKAP API taramasından üretilmiştir.

@@ -219,7 +219,8 @@ def ihale_sonuclarini_maile_cevir(
         ),
         (
             "Takvim: HTML tablosundaki 'Takvime Ekle' dugmesi Google Takvim sablonunu acar; "
-            "etkinlik ihaleden 1 hafta once hatirlatici olarak eklenir."
+            "etkinlik ihaleden 7 gun once, ayni saatte 1 saatlik hatirlatici olarak eklenir. "
+            "Bot takvime otomatik yazmaz."
         ),
         (
             f"Bugün yeni: {len(yeni_bugun)} | Önceki gün yeni: {len(yeni_dun)} | "
@@ -305,7 +306,8 @@ def ihale_sonuclarini_maile_cevir(
       </p>
       <p style="margin-top:0;color:#0F766E;font-size:13px">
         Tablodaki <b>📅 Takvime Ekle</b> bağlantısı Google Takvim şablonunu açar;
-        etkinlik ihaleden <b>1 hafta önce</b> hatırlatıcı olarak eklenir.
+        etkinlik ihaleden <b>7 gün önce</b>, aynı saatte 1 saatlik hatırlatıcı olarak eklenir.
+        Bot takvime otomatik yazmaz; yalnızca ilgilendiğiniz ihaleyi siz ekleyin.
       </p>
       {kutular}
       <h3 style="margin:18px 0 8px 0">Tüm teklif vermeye açık liste</h3>
