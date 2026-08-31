@@ -10,6 +10,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
+from calendar_sync import google_calendar_button_html, google_calendar_template_url
+
 Attachment = Tuple[str, bytes, str]  # filename, content, mime type
 
 ROOT = Path(__file__).resolve().parent
@@ -141,6 +143,7 @@ def _tablo_satirlari(veriler: List[Dict[str, str]]) -> str:
             f"<td>{_esc(v.get('İl', ''))}</td>"
             f"<td>{_esc(v.get('Durum', ''))}</td>"
             f"<td>{link_html}</td>"
+            f"<td>{google_calendar_button_html(v)}</td>"
             "</tr>"
         )
     return "".join(rows)
@@ -167,11 +170,11 @@ def _yeni_kutu(
         <thead style="background:{head};color:#fff">
           <tr>
             <th>İKN</th><th>İşin Adı</th><th>Kurum</th><th>İhale Tarihi</th>
-            <th>İl</th><th>Durum</th><th>Link</th>
+            <th>İl</th><th>Durum</th><th>Link</th><th>Takvim</th>
           </tr>
         </thead>
         <tbody>
-          {_tablo_satirlari(veriler) if veriler else '<tr><td colspan="7">Kayıt yok</td></tr>'}
+          {_tablo_satirlari(veriler) if veriler else '<tr><td colspan="8">Kayıt yok</td></tr>'}
         </tbody>
       </table>
     </div>
@@ -215,6 +218,10 @@ def ihale_sonuclarini_maile_cevir(
             "Bu yuzden ihale tarihi daha ileri bir tarih olabilir."
         ),
         (
+            "Takvim: HTML tablosundaki 'Takvime Ekle' dugmesi Google Takvim sablonunu acar; "
+            "yalnizca istediginiz ihaleyi kendi takviminize kaydedebilirsiniz."
+        ),
+        (
             f"Bugün yeni: {len(yeni_bugun)} | Önceki gün yeni: {len(yeni_dun)} | "
             f"Bu hafta yeni: {len(yeni_hafta)} | Açık liste: {n}"
         ),
@@ -225,6 +232,7 @@ def ihale_sonuclarini_maile_cevir(
         for v in yeni_bugun:
             lines.append(
                 f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
+                f" | takvim: {google_calendar_template_url(v)}"
             )
     else:
         lines.append("(Yok)")
@@ -234,6 +242,7 @@ def ihale_sonuclarini_maile_cevir(
         for v in yeni_dun:
             lines.append(
                 f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
+                f" | takvim: {google_calendar_template_url(v)}"
             )
     else:
         lines.append("(Yok)")
@@ -243,6 +252,7 @@ def ihale_sonuclarini_maile_cevir(
         for v in yeni_hafta:
             lines.append(
                 f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
+                f" | takvim: {google_calendar_template_url(v)}"
             )
     else:
         lines.append("(Yok)")
@@ -251,6 +261,7 @@ def ihale_sonuclarini_maile_cevir(
     for v in veriler:
         lines.append(
             f"- {v.get('İKN')} | {v.get('İşin Adı')} | {v.get('İhale Tarihi')} | {v.get('Link')}"
+            f" | takvim: {google_calendar_template_url(v)}"
         )
 
     body = "\n".join(lines)
@@ -292,6 +303,10 @@ def ihale_sonuclarini_maile_cevir(
         'Yeni' etiketi ihale tarihini degil, ilanin EKAP'ta yayimlandigi gunu anlatir.
         Bu yuzden ihale tarihi daha ileri bir gunde olabilir.
       </p>
+      <p style="margin-top:0;color:#0F766E;font-size:13px">
+        Tablodaki <b>📅 Takvime Ekle</b> bağlantısı Google Takvim şablonunu açar;
+        yalnızca istediğiniz ihaleyi kendi takviminize kaydedip hatırlatıcı kurabilirsiniz.
+      </p>
       {kutular}
       <h3 style="margin:18px 0 8px 0">Tüm teklif vermeye açık liste</h3>
       <table border="1" cellpadding="6" cellspacing="0"
@@ -299,11 +314,11 @@ def ihale_sonuclarini_maile_cevir(
         <thead style="background:#2C3E50;color:#fff">
           <tr>
             <th>İKN</th><th>İşin Adı</th><th>Kurum</th><th>İhale Tarihi</th>
-            <th>İl</th><th>Durum</th><th>Link</th>
+            <th>İl</th><th>Durum</th><th>Link</th><th>Takvim</th>
           </tr>
         </thead>
         <tbody>
-          {_tablo_satirlari(veriler) if veriler else '<tr><td colspan="7">Kayıt yok</td></tr>'}
+          {_tablo_satirlari(veriler) if veriler else '<tr><td colspan="8">Kayıt yok</td></tr>'}
         </tbody>
       </table>
     </body></html>

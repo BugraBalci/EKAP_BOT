@@ -8,6 +8,8 @@ Ortam değişkenleri: ENTROPY_EMAIL_API_KEY, EKAP_EMAIL_RECIPIENTS (alias: RECEI
 Gönderen: info@entropywork.com (ENTROPY_EMAIL_FROM ile değiştirilebilir).
 İsteğe bağlı SMTP yedek: SENDER_MAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT.
 Google Takvim: GOOGLE_SERVICE_ACCOUNT_JSON, GOOGLE_CALENDAR_ID.
+AUTO_SYNC_CALENDAR=true olmadıkça ortak takvime toplu yazılmaz; maildeki
+Takvime Ekle bağlantısı kullanılır.
 OKAS_KODU (virgülle kök kodlar; API alt kodları genişletir),
 HARIC_KELIME, SAYFA_LIMITI (0 = tüm sayfalar).
 """
@@ -30,7 +32,13 @@ from typing import Dict, List, Optional, Sequence, Tuple
 from zoneinfo import ZoneInfo
 
 from bot_runner import ekap_botunu_calistir, verileri_kaydet
-from calendar_sync import ICS_DOSYA_ADI, google_takvime_yaz, ics_olustur
+from calendar_sync import (
+    ICS_DOSYA_ADI,
+    google_calendar_button_html,
+    google_calendar_template_url,
+    google_takvime_yaz,
+    ics_olustur,
+)
 from email_provider import ihale_sonuclarini_maile_cevir, send_email as msa_send_email
 
 from okas_defaults import DEFAULT_OKAS_KODLARI
@@ -43,7 +51,7 @@ DEFAULT_SAYFA_LIMITI = 0
 MAX_SAYFA_LIMITI = 20
 TZ = ZoneInfo("Europe/Istanbul")
 
-TABLO_SUTUNLARI = ("Kurum", "İşin Adı", "İKN", "İl / Saat", "Link")
+TABLO_SUTUNLARI = ("Kurum", "İşin Adı", "İKN", "İl / Saat", "Link", "Takvim")
 
 
 def _bugun() -> datetime:
@@ -159,7 +167,9 @@ def html_tablo(veriler: Sequence[Dict[str, str]]) -> str:
         hucreler = []
         for sutun in TABLO_SUTUNLARI:
             deger = _hucre(kayit, sutun)
-            if sutun == "Link" and deger.startswith("http"):
+            if sutun == "Takvim":
+                icerik = google_calendar_button_html(kayit)
+            elif sutun == "Link" and deger.startswith("http"):
                 icerik = (
                     f'<a href="{_esc(deger)}" target="_blank" rel="noopener" '
                     'style="color:#1D4ED8;font-weight:bold">Aç</a>'
@@ -222,6 +232,10 @@ def bulten_html(
             </p>
             {hata_kutusu}
             {html_tablo(veriler)}
+            <p style="margin:18px 0 0 0;color:#0F766E;font-size:13px">
+              Tablodaki <b>📅 Takvime Ekle</b> bağlantısı Google Takvim şablonunu açar;
+              yalnızca istediğiniz ihaleyi kendi takviminize kaydedebilirsiniz.
+            </p>
             <p style="margin:18px 0 0 0;color:#64748B;font-size:12px">
               Bu bülten GitHub Actions üzerindeki EKAP API taramasından üretilmiştir.
             </p>
@@ -260,6 +274,7 @@ def bulten_metin(
                         _hucre(kayit, "Kurum"),
                         _hucre(kayit, "İl / Saat"),
                         _hucre(kayit, "Link"),
+                        google_calendar_template_url(kayit),
                     ]
                 )
             )
@@ -388,8 +403,9 @@ def _ics_notu_ekle(html_govde: str, metin: str, ekler: Sequence[Tuple[str, bytes
         return html_govde, metin
     not_html = (
         '<p style="margin:18px 0 0 0;color:#334155;font-size:13px">'
-        f"Tüm ihaleler e-posta ekindeki <b>{ICS_DOSYA_ADI}</b> dosyasında "
-        "ve ortak Google Takvim'e otomatik işlenmiştir."
+        "İstediğiniz ihaleyi tablodaki <b>📅 Takvime Ekle</b> bağlantısıyla "
+        "kendi Google Takviminize ekleyebilirsiniz. "
+        f"Toplu içe aktarma için e-posta ekindeki <b>{ICS_DOSYA_ADI}</b> dosyasını kullanın."
         "</p>"
     )
     if "</body>" in html_govde:

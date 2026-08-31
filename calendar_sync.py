@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import json
 import os
 import re
@@ -23,11 +24,13 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo
 
 TZ = ZoneInfo("Europe/Istanbul")
 ICS_DOSYA_ADI = "gunluk_ekap_ihaleleri.ics"
 CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar"]
+GOOGLE_CALENDAR_TEMPLATE = "https://calendar.google.com/calendar/render"
 
 # "11.12.2026 11:00" veya "ANKARA, 11.12.2026 11:00" / "ANKARA / 11.12.2026"
 _DT_RE = re.compile(
@@ -180,6 +183,57 @@ def aciklama_metni(kayit: Dict[str, str]) -> str:
     satirlar.append(f"Tarih / Saat: {tarih}")
     satirlar.append(f"EKAP: {link}")
     return _kisalt("\n".join(satirlar), 7800)
+
+
+def auto_sync_calendar_enabled() -> bool:
+    """AUTO_SYNC_CALENDAR=true olmadıkça ortak takvime toplu yazılmaz."""
+    raw = (os.environ.get("AUTO_SYNC_CALENDAR") or "false").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def _google_calendar_dates_param(kayit: Dict[str, str]) -> str:
+    """Google Calendar TEMPLATE dates: timed UTC veya tüm gün (bitiş hariç)."""
+    dt, has_time = parse_ihale_datetime(tarih_metni_al(kayit))
+    if dt is None:
+        gun = datetime.now(TZ).date()
+        return f"{gun.strftime('%Y%m%d')}/{(gun + timedelta(days=1)).strftime('%Y%m%d')}"
+    if has_time:
+        start_utc = dt.replace(tzinfo=TZ).astimezone(timezone.utc)
+        end_utc = start_utc + timedelta(hours=1)
+        return (
+            f"{start_utc.strftime('%Y%m%dT%H%M%SZ')}/"
+            f"{end_utc.strftime('%Y%m%dT%H%M%SZ')}"
+        )
+    gun = dt.date()
+    return f"{gun.strftime('%Y%m%d')}/{(gun + timedelta(days=1)).strftime('%Y%m%d')}"
+
+
+def google_calendar_template_url(kayit: Dict[str, str]) -> str:
+    """Kullanıcının kendi takvimine eklemesi için Google Calendar şablon linki."""
+    il = _kayit_alani(kayit, "İl")
+    kurum = kurum_al(kayit)
+    location = " — ".join(p for p in (il, kurum) if p)
+    params = [
+        ("action", "TEMPLATE"),
+        ("text", ozet_baslik(kayit) or "EKAP İhale"),
+        ("dates", _google_calendar_dates_param(kayit)),
+        ("details", _kisalt(aciklama_metni(kayit), 1500)),
+        ("location", location),
+        ("ctz", "Europe/Istanbul"),
+    ]
+    return f"{GOOGLE_CALENDAR_TEMPLATE}?{urlencode(params, quote_via=quote)}"
+
+
+def google_calendar_button_html(kayit: Dict[str, str]) -> str:
+    """E-posta tablosu için tıklanabilir Takvime Ekle düğmesi."""
+    href = html.escape(google_calendar_template_url(kayit), quote=True)
+    return (
+        f'<a href="{href}" target="_blank" rel="noopener" '
+        'style="display:inline-block;background:#0F766E;color:#ffffff;'
+        "padding:6px 10px;border-radius:6px;text-decoration:none;"
+        'font-size:12px;font-weight:bold;white-space:nowrap">'
+        "📅 Takvime Ekle</a>"
+    )
 
 
 def google_event_body(kayit: Dict[str, str]) -> Optional[Dict[str, Any]]:
@@ -484,6 +538,12 @@ def _eski_ikn_basliklarini_temizle(service, cal_id: str, ozet: Dict[str, Any]) -
 
 def google_takvime_yaz(veriler: Sequence[Dict[str, str]]) -> Dict[str, Any]:
     """Çekilen ihaleleri ortak takvime ekler/günceller. Hata olursa yükseltmez."""
+    if not auto_sync_calendar_enabled():
+        print(
+            "ℹ️ AUTO_SYNC_CALENDAR kapalı; ortak takvime yazılmadı. "
+            "Maildeki 📅 Takvime Ekle bağlantısını kullanın."
+        )
+        return _bos_ozet(disabled=True)
     ozet = _bos_ozet()
     try:
         return _google_takvime_yaz(veriler, ozet)
