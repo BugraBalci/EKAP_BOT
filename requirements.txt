@@ -1,3 +1,4 @@
 # Google Calendar API kullanılmaz; maildeki Takvime Ekle linki stdlib urllib ile üretilir.
 # icalendar yalnızca isteğe bağlı .ics eki içindir.
 icalendar>=5.0.0
+selenium>=4.20.0

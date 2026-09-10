@@ -1,4 +1,4 @@
-# Her sabah 08:30 Türkiye (UTC+3) — EKAP v2 API (ihale-mcp) + sabah bülteni.
+# Her sabah 08:30 Türkiye (UTC+3) — EKAP v2 API (ihale-mcp + Chrome fetch) + sabah bülteni.
 # Secrets veya Variables (Settings → Secrets and variables → Actions):
 #   ENTROPY_EMAIL_API_KEY  → MSA API (gönderen: info@entropywork.com)
 #   EKAP_EMAIL_RECIPIENTS veya RECEIVER_MAILS → virgülle alıcılar
@@ -17,7 +17,7 @@ on:
 jobs:
   scrape-and-mail:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     env:
       ENTROPY_EMAIL_API_URL: https://msa.entropywork.com/api/send-email
       ENTROPY_EMAIL_API_KEY: ${{ secrets.ENTROPY_EMAIL_API_KEY }}
@@ -27,6 +27,7 @@ jobs:
       EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS || secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS }}
       RECEIVER_MAILS: ${{ secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS || secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS }}
       SAYFA_LIMITI: "0"
+      EKAP_HEADED: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -41,6 +42,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
@@ -50,4 +59,4 @@ jobs:
           uv sync --python 3.12 --directory vendor/ihale-mcp
 
       - name: Run EKAP cron bot
-        run: python cron_bot.py
+        run: xvfb-run -a python cron_bot.py

@@ -22,7 +22,7 @@ on:
 jobs:
   send-digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,6 +36,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+
+      - name: Install xvfb
+        run: sudo apt-get update && sudo apt-get install -y xvfb
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
@@ -51,13 +59,14 @@ jobs:
           ENTROPY_EMAIL_API_KEY: ${{ secrets.ENTROPY_EMAIL_API_KEY }}
           ENTROPY_EMAIL_FROM: info@entropywork.com
           EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS }}
+          EKAP_HEADED: "1"
         run: |
           set -euo pipefail
           TO="${{ github.event.inputs.recipients }}"
           OKAS="${{ github.event.inputs.okas }}"
           OKAS="${OKAS:-32230000,32220000,32510000,32524000,32552420,32552110,32552430,32573000,32420000,32410000,32430000,64215000,64212000,64216210,64216100,64216200,64216120,64216110,72700000,72200000,72400000,72300000,72800000,72910000,31711000}"
           if [ -n "${TO}" ]; then
-            python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 0 --to "$TO"
+            xvfb-run -a python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 0 --to "$TO"
           else
-            python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 0
+            xvfb-run -a python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 0
           fi

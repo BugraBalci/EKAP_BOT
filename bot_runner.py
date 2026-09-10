@@ -26,7 +26,7 @@ def verileri_kaydet(veri_listesi, dosya_adi="ekap_arayuz_sonuclar.csv"):
 
 
 def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
-    """ihale-mcp EKAPClient ile arar; Selenium kullanmaz.
+    """ihale-mcp EKAPClient + Chrome sayfa-içi fetch ile arar.
 
     Returns: (tenders, csv_path, meta)
     """
@@ -46,6 +46,8 @@ def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
         "3.12",
         "--directory",
         str(VENDOR),
+        "--with",
+        "selenium",
         "python",
         str(SEARCH_SCRIPT),
         "--okas",
@@ -56,7 +58,7 @@ def ekap_botunu_calistir(okas, durum, haric_kelime, limit):
         str(limit),
     ]
 
-    print("🔎 EKAP API araması başlıyor (ihale-mcp)...")
+    print("🔎 EKAP API araması başlıyor (ihale-mcp, tarayıcı fetch)...")
     print(f"   OKAS={okas} | açık + ihale tarihi≥bugün | sayfa_limiti={limit}")
 
     env = os.environ.copy()

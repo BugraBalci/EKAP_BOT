@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""EKAP arama CLI — vendor/ihale-mcp ortamında uv ile çalışır."""
+"""EKAP arama CLI — vendor/ihale-mcp ortamında uv ile çalışır.
+
+Varsayılan taşıyıcı Chrome sayfa-içi fetch (Cloudflare 406'yı aşmak için).
+Eski httpx yolu: EKAP_BROWSER=0.
+"""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
+import os
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -87,7 +92,7 @@ def _http_status(exc: BaseException) -> Optional[int]:
 
 def _yeniden_denenebilir(exc: BaseException) -> bool:
     code = _http_status(exc)
-    if code in {401, 403, 408, 429, 500, 502, 503, 504}:
+    if code in {401, 403, 406, 408, 429, 500, 502, 503, 504}:
         return True
     name = type(exc).__name__.lower()
     metin = str(exc).lower()
@@ -397,6 +402,11 @@ async def _sayfala(
     return sonuclar
 
 
+def _browser_modu() -> bool:
+    raw = (os.environ.get("EKAP_BROWSER") or "1").strip().lower()
+    return raw not in {"0", "false", "no", "off", "httpx"}
+
+
 async def ara(okas: str, haric: str, sayfa_limiti: int, sayfa_boyutu: int = 50) -> Dict[str, Any]:
     """
     Döner:
@@ -411,13 +421,15 @@ async def ara(okas: str, haric: str, sayfa_limiti: int, sayfa_boyutu: int = 50) 
     from ihale_client import EKAPClient
 
     class SessionEKAPClient(EKAPClient):
-        """Tek httpx oturumu: önce /ekap/search cookie, sonra imzalı POST."""
+        """Tek oturum: varsayılan Chrome sayfa-içi fetch; EKAP_BROWSER=0 ile httpx."""
 
         def __init__(self) -> None:
             super().__init__()
             self._http: Optional[httpx.AsyncClient] = None
+            self._browser = None
+            self._use_browser = _browser_modu()
 
-        async def _oturum(self) -> httpx.AsyncClient:
+        async def _oturum_httpx(self) -> httpx.AsyncClient:
             if self._http is None:
                 ssl_context = self._create_ssl_context()
                 self._http = httpx.AsyncClient(
@@ -435,13 +447,36 @@ async def ara(okas: str, haric: str, sayfa_limiti: int, sayfa_boyutu: int = 50) 
                             "User-Agent": self.headers.get("User-Agent", ""),
                         },
                     )
-                    print("🍪 EKAP arama sayfası oturumu alındı.", file=sys.stderr, flush=True)
+                    print("🍪 EKAP arama sayfası oturumu alındı (httpx).", file=sys.stderr, flush=True)
                 except Exception as e:
                     print(f"⚠️ EKAP oturum ısınması atlandı: {e}", file=sys.stderr, flush=True)
             return self._http
 
+        async def _oturum_browser(self):
+            if self._browser is None:
+                from ekap_browser_client import BrowserEKAPTransport
+
+                transport = BrowserEKAPTransport(
+                    base_url=self.base_url,
+                    header_factory=self._generate_security_headers,
+                )
+                await asyncio.to_thread(transport.start)
+                self._browser = transport
+            return self._browser
+
         async def _make_request(self, endpoint: str, params: dict) -> dict:
-            http = await self._oturum()
+            if self._use_browser:
+                transport = await self._oturum_browser()
+                extra = {
+                    "Accept": "application/json, text/plain, */*",
+                    "Content-Type": "application/json",
+                    "api-version": self.headers.get("api-version", "v1"),
+                }
+                return await asyncio.to_thread(
+                    transport.post_json, endpoint, params, extra
+                )
+
+            http = await self._oturum_httpx()
             request_headers = {**self.headers, **self._generate_security_headers()}
             response = await http.post(
                 f"{self.base_url}{endpoint}",
@@ -455,6 +490,9 @@ async def ara(okas: str, haric: str, sayfa_limiti: int, sayfa_boyutu: int = 50) 
             if self._http is not None:
                 await self._http.aclose()
                 self._http = None
+            if self._browser is not None:
+                await asyncio.to_thread(self._browser.close)
+                self._browser = None
 
     client = SessionEKAPClient()
     try:

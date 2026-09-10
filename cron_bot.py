@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """GitHub Actions / cron: EKAP API tarama + sabah bülteni.
 
-GUI (main.py) ile aynı yolu kullanır: bot_runner → ekap_api_search (ihale-mcp).
-Selenium / headless Chrome kullanılmaz.
+GUI (main.py) ile aynı yolu kullanır: bot_runner → ekap_api_search
+(ihale-mcp imza + Chrome sayfa-içi fetch). DOM kazımaz.
 
 Ortam değişkenleri: ENTROPY_EMAIL_API_KEY, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
 Gönderen: info@entropywork.com (ENTROPY_EMAIL_FROM ile değiştirilebilir).
