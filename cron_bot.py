@@ -353,7 +353,7 @@ def ekap_tara(
 ) -> tuple[List[Dict[str, str]], List[str], Dict[str, List]]:
     """GUI ile aynı API yolunu kullanır; kök kodlar virgülle birleşim kümesi."""
     okas = ",".join(okas_kodlari)
-    print(f"🔎 EKAP API taraması (Selenium yok) | kökler={okas} | sayfa_limiti={limit}")
+    print(f"🔎 EKAP API taraması (Chrome fetch) | kökler={okas} | sayfa_limiti={limit}")
     ham, _dosya, meta = ekap_botunu_calistir(
         okas, "Teklif Vermeye Açık", haric, limit
     )

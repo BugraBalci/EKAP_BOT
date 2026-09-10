@@ -9,9 +9,8 @@
 name: EKAP Daily API Digest
 
 on:
-  schedule:
-    # 05:30 UTC = 08:30 Europe/Istanbul (Türkiye DST kullanmıyor)
-    - cron: "30 5 * * *"
+  # GitHub-hosted runner IP Cloudflare Turnstile gösteriyor; API 406.
+  # Zamanlanmış tarama headed Chrome ile bu makinede çalışmalı.
   workflow_dispatch:
 
 jobs:
