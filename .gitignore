@@ -1,4 +1,4 @@
-# local ihale-mcp clone for Cursor MCP / API client
+# runtime-only clones (not part of this Selenium branch)
 vendor/
 
 __pycache__/

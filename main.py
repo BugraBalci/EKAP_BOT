@@ -139,7 +139,7 @@ class EkapBotApp:
             messagebox.showinfo("Sonuç Yok", "Filtreye uyan ihale bulunamadı.")
             return
 
-        # Sıra: EKAP API / site sırası (ihaleTarihi desc) — yeniden sıralama yok
+        # Sıra: EKAP site sırası — yeniden sıralama yok
         sonuc_penceresi = tk.Toplevel(self.root)
         sonuc_penceresi.title("🔍 Çekilen İhale Sonuçları")
         sonuc_penceresi.geometry("1450x700")

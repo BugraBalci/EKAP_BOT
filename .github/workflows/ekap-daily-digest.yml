@@ -1,11 +1,11 @@
-# Elle tetiklenen API özeti (Entropy MSA mail).
+# Elle tetiklenen Selenium özeti (Entropy MSA mail).
 # Zamanlanmış günlük bülten: .github/workflows/ekap_daily.yml
 # Secrets (Settings → Secrets and variables → Actions):
 #   ENTROPY_EMAIL_API_KEY  → MSA API key (gönderen: info@entropywork.com)
 #   EKAP_EMAIL_RECIPIENTS  → virgülle alıcılar (örn: a@x.com,b@y.com)
 # Google Takvim API'ye otomatik etkinlik yazılmaz; maildeki Takvime Ekle kullanılır.
 
-name: EKAP Daily Digest (API, manual)
+name: EKAP Daily Digest (Selenium, manual)
 
 on:
   workflow_dispatch:
@@ -27,11 +27,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          version: "0.12.3"
-
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -48,25 +43,19 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
-      - name: Clone ihale-mcp vendor
-        run: |
-          git clone --depth 1 https://github.com/saidsurucu/ihale-mcp vendor/ihale-mcp
-          uv sync --python 3.12 --directory vendor/ihale-mcp
-
       - name: Send daily digest
         env:
           ENTROPY_EMAIL_API_URL: https://msa.entropywork.com/api/send-email
           ENTROPY_EMAIL_API_KEY: ${{ secrets.ENTROPY_EMAIL_API_KEY }}
           ENTROPY_EMAIL_FROM: info@entropywork.com
           EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS }}
-          EKAP_HEADED: "1"
         run: |
           set -euo pipefail
           TO="${{ github.event.inputs.recipients }}"
           OKAS="${{ github.event.inputs.okas }}"
           OKAS="${OKAS:-32230000,32220000,32510000,32524000,32552420,32552110,32552430,32573000,32420000,32410000,32430000,64215000,64212000,64216210,64216100,64216200,64216120,64216110,72700000,72200000,72400000,72300000,72800000,72910000,31711000}"
           if [ -n "${TO}" ]; then
-            xvfb-run -a python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 0 --to "$TO"
+            xvfb-run -a python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 2 --to "$TO"
           else
-            xvfb-run -a python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 0
+            xvfb-run -a python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 2
           fi

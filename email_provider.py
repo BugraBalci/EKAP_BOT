@@ -345,7 +345,7 @@ def uyari_mail_gonder(
             f"Hata: {hata}",
             f"Koşu: {run_url}" if run_url else "",
             "",
-            "Bu mail, cron'un çalıştığını ama EKAP API'nin cevap vermediğini bildirir.",
+            "Bu mail, cron'un çalıştığını ama EKAP taramasının cevap vermediğini bildirir.",
         ]
     ).strip()
     html = f"""

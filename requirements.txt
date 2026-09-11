@@ -1,4 +1,7 @@
 # Google Calendar API kullanılmaz; maildeki Takvime Ekle linki stdlib urllib ile üretilir.
 # icalendar yalnızca isteğe bağlı .ics eki içindir.
+# pandas: Selenium kart kazıması (data_scraper) CSV yazımı.
 icalendar>=5.0.0
 selenium>=4.20.0
+pandas>=2.0.0
+webdriver-manager>=4.0.0

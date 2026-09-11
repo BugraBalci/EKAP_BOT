@@ -6,8 +6,8 @@ etkinlik basmaz; takvim boş kalır. Kullanıcı yalnızca maildeki
 📅 Takvime Ekle bağlantısıyla (calendar/render?action=TEMPLATE) kendi
 takvimine, ihaleden 7 gün önce 1 saatlik hatırlatıcı ekler.
 
-API satır şeması (ekap_api_search.tender_to_row):
-  İKN, İşin Adı, Kurum, İhale Tarihi (ihaleTarihSaat), İl, Link
+Selenium kart satır şeması:
+  İKN, İşin Adı, Kurum, İhale Tarihi / İl / Saat, İl, Link
 """
 
 from __future__ import annotations

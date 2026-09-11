@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""GitHub Actions / cron: EKAP API tarama + sabah bülteni.
+"""GitHub Actions / cron: EKAP Selenium tarama + sabah bülteni.
 
-GUI (main.py) ile aynı yolu kullanır: bot_runner → ekap_api_search
-(ihale-mcp imza + Chrome sayfa-içi fetch). DOM kazımaz.
+GUI (main.py) ile aynı yolu kullanır: bot_runner → Selenium DOM kazıma.
+ihale-mcp / API kullanılmaz.
 
 Ortam değişkenleri: ENTROPY_EMAIL_API_KEY, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
 Gönderen: info@entropywork.com (ENTROPY_EMAIL_FROM ile değiştirilebilir).
 İsteğe bağlı SMTP yedek: SENDER_MAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT.
 Google Takvim API'ye otomatik etkinlik yazılmaz; maildeki
 📅 Takvime Ekle bağlantısı kullanılır.
-OKAS_KODU (virgülle kök kodlar; API alt kodları genişletir),
-HARIC_KELIME, SAYFA_LIMITI (0 = tüm sayfalar).
+OKAS_KODU (virgülle kök kodlar), HARIC_KELIME, SAYFA_LIMITI (0 = varsayılan 2 sayfa).
 """
 
 from __future__ import annotations
@@ -45,7 +44,7 @@ from email_provider import ihale_sonuclarini_maile_cevir, send_email as msa_send
 
 from okas_defaults import DEFAULT_OKAS_KODLARI
 
-# Kök OKAS kodları (API her kökün alt başlıklarını genişletir). 31711000 dahil.
+# Kök OKAS kodları (Selenium sitedeki OKAS seçicisini kullanır). 31711000 dahil.
 TARANACAK_OKAS_KODLARI = list(DEFAULT_OKAS_KODLARI)
 if "31711000" not in TARANACAK_OKAS_KODLARI:
     TARANACAK_OKAS_KODLARI.append("31711000")
@@ -147,7 +146,7 @@ def _hucre(kayit: Dict[str, str], anahtar: str) -> str:
 
 
 def _normalize_kayit(kayit: Dict[str, str]) -> Dict[str, str]:
-    """API satırını bülten tablosuna çevir (İl + ihale tarihi → İl / Saat)."""
+    """Kart satırını bülten tablosuna çevir (İl + ihale tarihi → İl / Saat)."""
     out = dict(kayit)
     if not (out.get("İl / Saat") or "").strip():
         il = (out.get("İl") or "").strip()
@@ -242,7 +241,7 @@ def bulten_html(
               Bot takvime otomatik yazmaz; yalnızca ilgilendiğiniz ihaleyi siz ekleyin.
             </p>
             <p style="margin:18px 0 0 0;color:#64748B;font-size:12px">
-              Bu bülten GitHub Actions üzerindeki EKAP API taramasından üretilmiştir.
+              Bu bülten GitHub Actions üzerindeki EKAP Selenium taramasından üretilmiştir.
             </p>
           </div>
         </div>
@@ -351,9 +350,9 @@ def mail_gonder(
 def ekap_tara(
     okas_kodlari: Sequence[str], haric: str, limit: int
 ) -> tuple[List[Dict[str, str]], List[str], Dict[str, List]]:
-    """GUI ile aynı API yolunu kullanır; kök kodlar virgülle birleşim kümesi."""
+    """GUI ile aynı Selenium yolunu kullanır; kök kodlar virgülle birleşim kümesi."""
     okas = ",".join(okas_kodlari)
-    print(f"🔎 EKAP API taraması (Chrome fetch) | kökler={okas} | sayfa_limiti={limit}")
+    print(f"🔎 EKAP Selenium taraması | kökler={okas} | sayfa_limiti={limit}")
     ham, _dosya, meta = ekap_botunu_calistir(
         okas, "Teklif Vermeye Açık", haric, limit
     )
@@ -370,7 +369,7 @@ def ekap_tara(
         toplanan.append(kayit)
 
     verileri_kaydet(toplanan, dosya_adi=KAYIT_DOSYASI)
-    print(f"✅ API birleşim: {len(ham)} ham, {len(toplanan)} benzersiz kayıt")
+    print(f"✅ Selenium birleşim: {len(ham)} ham, {len(toplanan)} benzersiz kayıt")
     return toplanan, hatalar, meta or {}
 
 
@@ -445,7 +444,7 @@ def ana_gorev() -> int:
             _bilgilendirme_gonder(
                 konu=f"EKAP Sabah Bülteni — hata ({tarih})",
                 baslik="EKAP taraması başarısız",
-                ozet="Sabah cron çalıştı ancak EKAP API taraması tamamlanamadı.",
+                ozet="Sabah cron çalıştı ancak EKAP Selenium taraması tamamlanamadı.",
                 okas=okas_etiket,
                 veriler=[],
                 hata=hata,
@@ -460,13 +459,13 @@ def ana_gorev() -> int:
         hata_notu = "Atlanan OKAS kodları:\n" + "\n".join(f"- {x}" for x in kod_hatalari)
 
     ozet = (
-        f"{len(okas_kodlari)} OKAS kodu tarandı (EKAP API / ihale-mcp). "
+        f"{len(okas_kodlari)} OKAS kodu tarandı (Selenium). "
         f"Tabloda {len(veriler)} benzersiz ihale yer alıyor."
     )
     if kod_hatalari:
         ozet += f" {len(kod_hatalari)} kod atlandı."
 
-    print("📧 API taraması bitti; bülten info@entropywork.com üzerinden gönderiliyor.")
+    print("📧 Selenium taraması bitti; bülten info@entropywork.com üzerinden gönderiliyor.")
     konu, metin, html_govde = ihale_sonuclarini_maile_cevir(
         veriler, okas_etiket, yeni_meta=meta
     )

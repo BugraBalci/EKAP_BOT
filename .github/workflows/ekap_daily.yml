@@ -1,4 +1,4 @@
-# Her sabah 08:30 Türkiye (UTC+3) — EKAP v2 API (ihale-mcp + Chrome fetch) + sabah bülteni.
+# Elle tetiklenen Selenium tarama + sabah bülteni.
 # Secrets veya Variables (Settings → Secrets and variables → Actions):
 #   ENTROPY_EMAIL_API_KEY  → MSA API (gönderen: info@entropywork.com)
 #   EKAP_EMAIL_RECIPIENTS veya RECEIVER_MAILS → virgülle alıcılar
@@ -6,11 +6,9 @@
 # Google Takvim API'ye otomatik etkinlik yazılmaz.
 # Kullanıcı maildeki "📅 Takvime Ekle" bağlantısıyla kendi takvimine ekler.
 
-name: EKAP Daily API Digest
+name: EKAP Daily Selenium Digest
 
 on:
-  # GitHub-hosted runner IP Cloudflare Turnstile gösteriyor; API 406.
-  # Zamanlanmış tarama headed Chrome ile bu makinede çalışmalı.
   workflow_dispatch:
 
 jobs:
@@ -25,16 +23,10 @@ jobs:
       SENDER_PASSWORD: ${{ secrets.SENDER_PASSWORD || vars.SENDER_PASSWORD }}
       EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS || secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS }}
       RECEIVER_MAILS: ${{ secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS || secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS }}
-      SAYFA_LIMITI: "0"
-      EKAP_HEADED: "1"
+      SAYFA_LIMITI: "2"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          version: "0.12.3"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -51,11 +43,6 @@ jobs:
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
-
-      - name: Clone ihale-mcp vendor
-        run: |
-          git clone --depth 1 https://github.com/saidsurucu/ihale-mcp vendor/ihale-mcp
-          uv sync --python 3.12 --directory vendor/ihale-mcp
 
       - name: Run EKAP cron bot
         run: xvfb-run -a python cron_bot.py
