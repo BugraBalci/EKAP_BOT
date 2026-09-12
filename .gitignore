@@ -13,5 +13,14 @@ debug_sayfa_*.png
 debug_sayfa_*.html
 gunluk_ekap_ihaleleri.ics
 
+# EKAP_MAIL_GONDER=0 kuru çalıştırma önizlemesi
+bulten_onizleme.html
+bulten_onizleme.txt
+
+# selenium_teshis.py çıktıları
+ekap_hata_*.png
+ekap_hata_*.html
+*_teshis.json
+
 .env
 .env.local

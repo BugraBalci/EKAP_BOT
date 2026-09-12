@@ -5,3 +5,13 @@ icalendar>=5.0.0
 selenium>=4.20.0
 pandas>=2.0.0
 webdriver-manager>=4.0.0
+# requests: sağlık kontrolü (ekap_health), API oturumu (ekap_session) ve
+# ilan.gov.tr yedek hattı (ilan_fallback).
+requests>=2.31.0
+# cryptography: EKAP v2 API'sinin beklediği imzalı X-Ekap-Sec başlıkları.
+# Yalnızca ekap_session.py imzalı istek atarken gerekir; kurulu değilse
+# modül imzasız devam edip 428'i raporlar.
+cryptography>=42.0.0
+# undetected-chromedriver: Angular'ın boş kalması bot koruması kaynaklı mı
+# diye ayırt etmek için. EKAP_UNDETECTED=1 verilmedikçe kullanılmaz.
+undetected-chromedriver>=3.5.5

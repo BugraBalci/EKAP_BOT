@@ -191,6 +191,33 @@ def build_subject(
     return f"Bugün {n_bugun} ihale, dün {n_dun} ihale girildi"
 
 
+KAYNAK_UYARI_BASLIK = "⚠️ Bu liste {kaynak} yedek hattından derlendi"
+KAYNAK_UYARI_METIN = (
+    "EKAP taraması yapılamadığı için kayıtlar ilan.gov.tr ihale duyurularından "
+    "toplandı. Kapsam EKAP'tan farklıdır: OKAS kodu yerine anahtar kelime "
+    "eşlemesi kullanılır ve yalnızca yayımlanmış ilanlar görünür."
+)
+
+
+def _kaynak_uyarisi(meta: Optional[Dict[str, Any]]) -> tuple[str, str]:
+    """Liste yedek hattan geldiyse (başlık, açıklama) döndürür, yoksa ("", "").
+
+    Bu gövdedeki metinler kayıtları "EKAP'ta yayımlanan" diye anlatıyor. Uyarı
+    olmazsa ilan.gov.tr listesi EKAP taraması sanılır ve kapsam farkı görünmez.
+    """
+    if not isinstance(meta, dict):
+        return "", ""
+    kaynak = (meta.get("kaynak") or "EKAP").strip()
+    if not kaynak or kaynak == "EKAP":
+        return "", ""
+
+    aciklama = KAYNAK_UYARI_METIN
+    not_ = (meta.get("saglik_ozeti") or meta.get("selenium_hatasi") or "").strip()
+    if not_:
+        aciklama += f" EKAP durumu: {not_}"
+    return KAYNAK_UYARI_BASLIK.format(kaynak=kaynak), aciklama
+
+
 def ihale_sonuclarini_maile_cevir(
     veriler: List[Dict[str, str]],
     okas: str,
@@ -207,10 +234,19 @@ def ihale_sonuclarini_maile_cevir(
         yeni_dun = list(yeni_meta.get("yeni_dun") or [])
         yeni_hafta = list(yeni_meta.get("yeni_bu_hafta") or [])
 
+    uyari_baslik, uyari_aciklama = _kaynak_uyarisi(
+        yeni_meta if isinstance(yeni_meta, dict) else None
+    )
+
     n = len(veriler)
     subject = build_subject(yeni_bugun, yeni_dun)
+    if uyari_baslik:
+        subject += " — ilan.gov.tr yedek hattı"
 
-    lines = [
+    lines = []
+    if uyari_baslik:
+        lines += [uyari_baslik, uyari_aciklama, ""]
+    lines += [
         f"OKAS: {okas}",
         f"Konu özeti: {subject}",
         (
@@ -293,8 +329,20 @@ def ihale_sonuclarini_maile_cevir(
         "#047857",
     )
 
+    uyari_kutusu = ""
+    if uyari_baslik:
+        uyari_kutusu = (
+            '<div style="border:2px solid #FDBA74;background:#FFF7ED;color:#9A3412;'
+            'border-radius:8px;padding:14px 16px;margin:0 0 18px 0">'
+            f'<div style="font-size:16px;font-weight:bold;margin-bottom:6px">'
+            f"{_esc(uyari_baslik)}</div>"
+            f'<p style="margin:0;font-size:13px">{_esc(uyari_aciklama)}</p>'
+            "</div>"
+        )
+
     html = f"""
     <html><body style="font-family:Arial,sans-serif;color:#222">
+      {uyari_kutusu}
       <h2 style="margin-bottom:6px">{_esc(subject)}</h2>
       <p style="margin-top:0">
         <b>OKAS:</b> {_esc(okas)} —

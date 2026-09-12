@@ -49,6 +49,9 @@ jobs:
           ENTROPY_EMAIL_API_KEY: ${{ secrets.ENTROPY_EMAIL_API_KEY }}
           ENTROPY_EMAIL_FROM: info@entropywork.com
           EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS }}
+          # EKAP bot doğrulaması aşılamadığı için liste ilan.gov.tr yedek
+          # hattından derlenir; EKAP taranabilir olunca "1" yapın.
+          EKAP_SELENIUM: "0"
         run: |
           set -euo pipefail
           TO="${{ github.event.inputs.recipients }}"

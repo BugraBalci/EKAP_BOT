@@ -285,12 +285,39 @@ def bulten_metin(
     return "\n".join(lines)
 
 
+def _mail_gonderilsin() -> bool:
+    """EKAP_MAIL_GONDER=0 ile mail gönderimi kapatılır (cron'u güvenle denemek için)."""
+    ham = (os.environ.get("EKAP_MAIL_GONDER") or "1").strip().lower()
+    return ham not in {"0", "false", "no", "off"}
+
+
+def _onizleme_yaz(konu: str, html_govde: str, metin_govde: str, ekler) -> None:
+    """Kuru çalıştırmada bülteni dosyaya yazar; gerçek alıcıya gitmez."""
+    kok = Path(__file__).resolve().parent
+    (kok / "bulten_onizleme.html").write_text(html_govde, encoding="utf-8")
+    (kok / "bulten_onizleme.txt").write_text(
+        f"KONU: {konu}\n\n{metin_govde}", encoding="utf-8"
+    )
+    alicilar = _alicilar()
+    print(
+        f"🧪 EKAP_MAIL_GONDER=0 — mail GÖNDERİLMEDİ.\n"
+        f"   konu: {konu}\n"
+        f"   alıcı sayısı: {len(alicilar)} (yapılandırılmış)\n"
+        f"   ek: {', '.join(ad for ad, _v, _m in ekler or ()) or 'yok'}\n"
+        f"   önizleme: bulten_onizleme.html / bulten_onizleme.txt"
+    )
+
+
 def mail_gonder(
     konu: str,
     html_govde: str,
     metin_govde: str,
     ekler: Optional[Sequence[Tuple[str, bytes, str]]] = None,
 ) -> None:
+    if not _mail_gonderilsin():
+        _onizleme_yaz(konu, html_govde, metin_govde, ekler)
+        return
+
     alicilar = _alicilar()
     if not alicilar:
         raise RuntimeError(
@@ -458,14 +485,29 @@ def ana_gorev() -> int:
     if kod_hatalari:
         hata_notu = "Atlanan OKAS kodları:\n" + "\n".join(f"- {x}" for x in kod_hatalari)
 
-    ozet = (
-        f"{len(okas_kodlari)} OKAS kodu tarandı (Selenium). "
-        f"Tabloda {len(veriler)} benzersiz ihale yer alıyor."
-    )
+    kaynak = (meta or {}).get("kaynak") or "EKAP"
+    if kaynak == "EKAP":
+        ozet = (
+            f"{len(okas_kodlari)} OKAS kodu tarandı (Selenium). "
+            f"Tabloda {len(veriler)} benzersiz ihale yer alıyor."
+        )
+    else:
+        ozet = (
+            f"EKAP kullanılamadığı için liste {kaynak} yedek hattından derlendi; "
+            f"{len(veriler)} ilan listelendi. Kapsam EKAP taramasından farklıdır: "
+            "OKAS filtresi yerine anahtar kelime eşlemesi kullanılır ve İKN yerine "
+            "ilan numarası gösterilir."
+        )
+        ekap_notu = (meta or {}).get("saglik_ozeti") or (meta or {}).get("selenium_hatasi")
+        if ekap_notu:
+            hata_notu = (hata_notu + "\n\n" if hata_notu else "") + f"EKAP durumu: {ekap_notu}"
     if kod_hatalari:
         ozet += f" {len(kod_hatalari)} kod atlandı."
 
-    print("📧 Selenium taraması bitti; bülten info@entropywork.com üzerinden gönderiliyor.")
+    print(f"📧 Tarama bitti (kaynak: {kaynak}); bülten hazırlanıyor.")
+    # Kaynak uyarısı (liste yedek hattan geldiyse) email_provider içinde
+    # gövdeye ekleniyor; daily_digest.py da aynı yoldan geçtiği için orada da
+    # görünür.
     konu, metin, html_govde = ihale_sonuclarini_maile_cevir(
         veriler, okas_etiket, yeni_meta=meta
     )

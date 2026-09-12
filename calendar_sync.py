@@ -196,11 +196,16 @@ def _google_calendar_dates_param(kayit: Dict[str, str]) -> str:
     YYYYMMDDTHHMMSS/YYYYMMDDTHHMMSS (Europe/Istanbul, ctz ile).
     Saat yoksa 00:00'dan 1 saat. Tarih yoksa bugünün 1 saatlik aralığı.
     """
+    simdi = datetime.now(TZ).replace(second=0, microsecond=0, tzinfo=None)
     dt, _has_time = parse_ihale_datetime(tarih_metni_al(kayit))
     if dt is None:
-        start = datetime.now(TZ).replace(second=0, microsecond=0).replace(tzinfo=None)
+        start = simdi
     else:
         start = dt - timedelta(days=HATIRLATMA_GUN_ONCE)
+        if start < simdi:
+            # İhaleye 7 günden az kaldı. Geçmişe kurulan etkinlik hiç bildirim
+            # üretmez; hatırlatıcı en erken şimdiye çekilir.
+            start = simdi
     end = start + timedelta(hours=1)
     return f"{start.strftime('%Y%m%dT%H%M%S')}/{end.strftime('%Y%m%dT%H%M%S')}"
 
