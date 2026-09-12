@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from calendar_sync import google_calendar_button_html, google_calendar_template_url
+from calendar_sync import google_calendar_button_html, google_calendar_linkleri_metin
 
 Attachment = Tuple[str, bytes, str]  # filename, content, mime type
 
@@ -254,8 +254,10 @@ def ihale_sonuclarini_maile_cevir(
             "Bu yuzden ihale tarihi daha ileri bir tarih olabilir."
         ),
         (
-            "Takvim: HTML tablosundaki 'Takvime Ekle' dugmesi Google Takvim sablonunu acar; "
-            "etkinlik ihaleden 7 gun once, ayni saatte 1 saatlik hatirlatici olarak eklenir. "
+            "Takvim: HTML tablosundaki dugmeler Google Takvim sablonunu acar. "
+            "Birincisi ihaleden 7 gun once hazirlik hatirlaticisidir; ikincisi gercek "
+            "ihale gunu/saati etkinligidir (saat yoksa mesai baslangici 09:00). "
+            "ICS ekinde her iki alarm da vardir (7 gun once + 1 saat once). "
             "Bot takvime otomatik yazmaz."
         ),
         (
@@ -269,7 +271,7 @@ def ihale_sonuclarini_maile_cevir(
         for v in yeni_bugun:
             lines.append(
                 f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
-                f" | takvim: {google_calendar_template_url(v)}"
+                f" | {google_calendar_linkleri_metin(v)}"
             )
     else:
         lines.append("(Yok)")
@@ -279,7 +281,7 @@ def ihale_sonuclarini_maile_cevir(
         for v in yeni_dun:
             lines.append(
                 f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
-                f" | takvim: {google_calendar_template_url(v)}"
+                f" | {google_calendar_linkleri_metin(v)}"
             )
     else:
         lines.append("(Yok)")
@@ -289,7 +291,7 @@ def ihale_sonuclarini_maile_cevir(
         for v in yeni_hafta:
             lines.append(
                 f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
-                f" | takvim: {google_calendar_template_url(v)}"
+                f" | {google_calendar_linkleri_metin(v)}"
             )
     else:
         lines.append("(Yok)")
@@ -298,7 +300,7 @@ def ihale_sonuclarini_maile_cevir(
     for v in veriler:
         lines.append(
             f"- {v.get('İKN')} | {v.get('İşin Adı')} | {v.get('İhale Tarihi')} | {v.get('Link')}"
-            f" | takvim: {google_calendar_template_url(v)}"
+            f" | {google_calendar_linkleri_metin(v)}"
         )
 
     body = "\n".join(lines)
@@ -353,8 +355,10 @@ def ihale_sonuclarini_maile_cevir(
         Bu yuzden ihale tarihi daha ileri bir gunde olabilir.
       </p>
       <p style="margin-top:0;color:#0F766E;font-size:13px">
-        Tablodaki <b>📅 Takvime Ekle</b> bağlantısı Google Takvim şablonunu açar;
-        etkinlik ihaleden <b>7 gün önce</b>, aynı saatte 1 saatlik hatırlatıcı olarak eklenir.
+        Tablodaki takvim düğmeleri Google Takvim şablonunu açar:
+        <b>📅 7 gün önce</b> hazırlık hatırlatıcısı,
+        <b>📅 İhale günü</b> gerçek başlangıç saati (saat yoksa mesai başlangıcı 09:00).
+        Ekteki .ics içinde her iki hatırlatıcı da vardır (7 gün önce + ihale saatinden 1 saat önce).
         Bot takvime otomatik yazmaz; yalnızca ilgilendiğiniz ihaleyi siz ekleyin.
       </p>
       {kutular}

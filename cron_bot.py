@@ -8,7 +8,7 @@ Ortam değişkenleri: ENTROPY_EMAIL_API_KEY, EKAP_EMAIL_RECIPIENTS (alias: RECEI
 Gönderen: info@entropywork.com (ENTROPY_EMAIL_FROM ile değiştirilebilir).
 İsteğe bağlı SMTP yedek: SENDER_MAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT.
 Google Takvim API'ye otomatik etkinlik yazılmaz; maildeki
-📅 Takvime Ekle bağlantısı kullanılır.
+📅 7 gün önce / 📅 İhale günü bağlantıları kullanılır.
 OKAS_KODU (virgülle kök kodlar), HARIC_KELIME, SAYFA_LIMITI (0 = varsayılan 2 sayfa).
 """
 
@@ -33,13 +33,13 @@ from bot_runner import ekap_botunu_calistir, verileri_kaydet
 from calendar_sync import (
     ICS_DOSYA_ADI,
     google_calendar_button_html,
-    google_calendar_template_url,
+    google_calendar_linkleri_metin,
     ics_olustur,
 )
 
 # google_takvime_yaz / Google Calendar API bilinçli olarak import edilmez ve
 # hiçbir Calendar ID'ye etkinlik yazılmaz. Takvim yalnızca maildeki
-# 📅 Takvime Ekle şablon linkiyle kullanıcı tarafından doldurulur.
+# 📅 7 gün önce ve 📅 İhale günü şablon linkleriyle kullanıcı tarafından doldurulur.
 from email_provider import ihale_sonuclarini_maile_cevir, send_email as msa_send_email
 
 from okas_defaults import DEFAULT_OKAS_KODLARI
@@ -236,8 +236,10 @@ def bulten_html(
             {hata_kutusu}
             {html_tablo(veriler)}
             <p style="margin:18px 0 0 0;color:#0F766E;font-size:13px">
-              Tablodaki <b>📅 Takvime Ekle</b> bağlantısı Google Takvim şablonunu açar;
-              etkinlik ihaleden <b>7 gün önce</b>, aynı saatte 1 saatlik hatırlatıcı olarak eklenir.
+              Tablodaki takvim düğmeleri Google Takvim şablonunu açar:
+              <b>📅 7 gün önce</b> hazırlık hatırlatıcısı,
+              <b>📅 İhale günü</b> gerçek başlangıç saati (saat yoksa mesai başlangıcı 09:00).
+              Ekteki .ics içinde her iki hatırlatıcı da vardır (7 gün önce + ihale saatinden 1 saat önce).
               Bot takvime otomatik yazmaz; yalnızca ilgilendiğiniz ihaleyi siz ekleyin.
             </p>
             <p style="margin:18px 0 0 0;color:#64748B;font-size:12px">
@@ -278,7 +280,7 @@ def bulten_metin(
                         _hucre(kayit, "Kurum"),
                         _hucre(kayit, "İl / Saat"),
                         _hucre(kayit, "Link"),
-                        google_calendar_template_url(kayit),
+                        google_calendar_linkleri_metin(kayit),
                     ]
                 )
             )
@@ -420,8 +422,10 @@ def _ics_notu_ekle(html_govde: str, metin: str, ekler: Sequence[Tuple[str, bytes
         return html_govde, metin
     not_html = (
         '<p style="margin:18px 0 0 0;color:#334155;font-size:13px">'
-        "İstediğiniz ihaleyi tablodaki <b>📅 Takvime Ekle</b> bağlantısıyla "
-        "kendi Google Takviminize <b>1 hafta önce hatırlatıcı</b> olarak ekleyebilirsiniz. "
+        "İstediğiniz ihaleyi tablodaki <b>📅 7 gün önce</b> ve <b>📅 İhale günü</b> "
+        "bağlantılarıyla kendi Google Takviminize ekleyebilirsiniz. "
+        "Hazırlık hatırlatıcısı ihaleden 7 gün önceye, ihale günü etkinliği gerçek "
+        "başlangıç saatine kurulur; .ics ekinde 7 gün önce ve 1 saat önce VALARM vardır. "
         f"Toplu içe aktarma için e-posta ekindeki <b>{ICS_DOSYA_ADI}</b> dosyasını kullanın."
         "</p>"
     )

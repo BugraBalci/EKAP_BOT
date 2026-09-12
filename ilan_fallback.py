@@ -188,8 +188,8 @@ def _kayda_cevir(ilan: Dict, kelime: str) -> Dict[str, str]:
 
     yayim = _tarih_metni(ilan.get("publishStartDate"))
     # Yayım tarihi ihale tarihi yerine konmaz: takvim hatırlatıcısı ihaleden 7
-    # gün öncesine kurulduğu için yayım tarihi kullanılırsa hatırlatıcı geçmişe
-    # düşer. Gerçek ihale günü yoksa alan boş bırakılır.
+    # gün önceye ve ihale saatinden 1 saat önceye kurulduğu için yayım tarihi
+    # kullanılırsa hatırlatıcı geçmişe düşer. Gerçek ihale günü yoksa alan boş bırakılır.
     tarih = _ihale_tarihi(filtreler)
     ikn = _filtreden_al(filtreler, IKN_ALANLARI)
     yol = (ilan.get("urlStr") or "").strip()
