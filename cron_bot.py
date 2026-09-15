@@ -41,6 +41,7 @@ from calendar_sync import (
 # hiçbir Calendar ID'ye etkinlik yazılmaz. Takvim yalnızca maildeki
 # 📅 7 gün önce ve 📅 İhale günü şablon linkleriyle kullanıcı tarafından doldurulur.
 from email_provider import ihale_sonuclarini_maile_cevir, send_email as msa_send_email
+from ilan_alaka import kayitlari_suz, meta_listelerini_suz
 
 from okas_defaults import DEFAULT_OKAS_KODLARI
 
@@ -397,9 +398,16 @@ def ekap_tara(
         gorulen.add(anahtar)
         toplanan.append(kayit)
 
-    verileri_kaydet(toplanan, dosya_adi=KAYIT_DOSYASI)
-    print(f"✅ Selenium birleşim: {len(ham)} ham, {len(toplanan)} benzersiz kayıt")
-    return toplanan, hatalar, meta or {}
+    temiz, ozet = kayitlari_suz(toplanan)
+    if ozet.elenen:
+        print(
+            f"🧹 Bülten süzgeci: {ozet.elenen} alakasız ilan.gov.tr kaydı elendi, "
+            f"{len(temiz)} kaldı."
+        )
+    meta = meta_listelerini_suz(meta or {}, temiz)
+    verileri_kaydet(temiz, dosya_adi=KAYIT_DOSYASI)
+    print(f"✅ Selenium birleşim: {len(ham)} ham, {len(temiz)} benzersiz kayıt")
+    return temiz, hatalar, meta
 
 
 def _ics_ekleri(
@@ -498,9 +506,11 @@ def ana_gorev() -> int:
     else:
         ozet = (
             f"EKAP kullanılamadığı için liste {kaynak} yedek hattından derlendi; "
-            f"{len(veriler)} ilan listelendi. Kapsam EKAP taramasından farklıdır: "
-            "OKAS filtresi yerine anahtar kelime eşlemesi kullanılır ve İKN yerine "
-            "ilan numarası gösterilir."
+            f"alaka süzgecinden geçen {len(veriler)} ilan listelendi "
+            "(yazılım, donanım, bilişim, network, lisans). "
+            "Arsa, taşınmaz, kantin ve araç kiralama elendi. "
+            "Kapsam EKAP taramasından farklıdır: OKAS filtresi yerine anahtar "
+            "kelime eşlemesi kullanılır."
         )
         ekap_notu = (meta or {}).get("saglik_ozeti") or (meta or {}).get("selenium_hatasi")
         if ekap_notu:

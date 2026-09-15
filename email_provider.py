@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from calendar_sync import google_calendar_button_html, google_calendar_linkleri_metin
+from ilan_alaka import kayitlari_suz, meta_listelerini_suz
 
 Attachment = Tuple[str, bytes, str]  # filename, content, mime type
 
@@ -194,8 +195,10 @@ def build_subject(
 KAYNAK_UYARI_BASLIK = "⚠️ Bu liste {kaynak} yedek hattından derlendi"
 KAYNAK_UYARI_METIN = (
     "EKAP taraması yapılamadığı için kayıtlar ilan.gov.tr ihale duyurularından "
-    "toplandı. Kapsam EKAP'tan farklıdır: OKAS kodu yerine anahtar kelime "
-    "eşlemesi kullanılır ve yalnızca yayımlanmış ilanlar görünür."
+    "toplandı ve iki kademeli alaka süzgecinden (yazılım / donanım / bilişim / "
+    "network / lisans whitelist, arsa-taşınmaz-kantin-araç kiralama kara liste) "
+    "geçirildi. Kapsam EKAP'tan farklıdır: OKAS kodu yerine anahtar kelime "
+    "eşlemesi kullanılır ve yalnızca yayımlanmış, kriterlere uyan ilanlar görünür."
 )
 
 
@@ -223,13 +226,23 @@ def ihale_sonuclarini_maile_cevir(
     okas: str,
     yeni_meta: Optional[Union[List[Dict[str, str]], Dict[str, Any]]] = None,
 ) -> tuple[str, str, str]:
+    veriler, ozet = kayitlari_suz(veriler)
+    if ozet.elenen:
+        print(
+            f"🧹 Mail tablosu: {ozet.elenen} alakasız ilan.gov.tr kaydı elendi, "
+            f"{len(veriler)} kaldı."
+        )
+
     yeni_bugun: List[Dict[str, str]] = []
     yeni_dun: List[Dict[str, str]] = []
     yeni_hafta: List[Dict[str, str]] = []
 
     if isinstance(yeni_meta, list):
-        yeni_hafta = yeni_meta
+        yeni_hafta = meta_listelerini_suz(
+            {"yeni_bu_hafta": list(yeni_meta)}, veriler
+        ).get("yeni_bu_hafta") or []
     elif isinstance(yeni_meta, dict):
+        yeni_meta = meta_listelerini_suz(yeni_meta, veriler)
         yeni_bugun = list(yeni_meta.get("yeni_bugun") or [])
         yeni_dun = list(yeni_meta.get("yeni_dun") or [])
         yeni_hafta = list(yeni_meta.get("yeni_bu_hafta") or [])

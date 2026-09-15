@@ -18,6 +18,7 @@ from ekap_actions import (
     okas_kodu_sec,
 )
 from ekap_health import saglik_bekle, saglik_kontrol
+from ilan_alaka import kayitlari_suz, ozeti_yazdir
 from ilan_fallback import IlanYedekHatasi, okas_ile_tara
 from selenium_teshis import spa_hidrasyon_bekle, teshis_ozeti, teshis_raporu
 
@@ -28,7 +29,7 @@ MAX_SELENIUM_SAYFA = 3
 
 # SPA render edilmezse formu beklemenin anlamı yok; erken çık.
 SPA_BEKLEME_SN = 20.0
-YEDEK_HAT_GUN = 14
+YEDEK_HAT_GUN = 10
 YEDEK_HAT_LIMIT = 20
 
 
@@ -249,8 +250,19 @@ def _yedek_hattan_tara(roots, haric_kelime, gerekce: str, log=print):
         dislanacak_kelime=haric_kelime or "",
         log=log,
     )
-    log(f"✅ Yedek hat {len(kayitlar)} ilan getirdi (kaynak: ilan.gov.tr).")
-    return kayitlar
+    temiz, ozet = kayitlari_suz(kayitlar)
+    if ozet.elenen:
+        log(
+            f"🧹 Zorunlu alaka süzgeci: {ozet.elenen} alakasız ilan elendi, "
+            f"{len(temiz)} kaldı."
+        )
+        ozeti_yazdir(ozet, log=log)
+    if not temiz:
+        raise IlanYedekHatasi(
+            "ilan.gov.tr tarandı ama alaka süzgecinden geçen ihale kalmadı."
+        )
+    log(f"✅ Yedek hat {len(temiz)} ilgili ilan getirdi (kaynak: ilan.gov.tr).")
+    return temiz
 
 
 def _yeni_kayitlari_isaretle(kayitlar, meta) -> None:

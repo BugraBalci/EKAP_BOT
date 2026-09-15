@@ -19,6 +19,7 @@ import traceback
 from bot_runner import ekap_botunu_calistir
 from calendar_sync import ICS_DOSYA_ADI, ics_olustur
 from email_provider import load_dotenv, sonuclari_email_gonder, uyari_mail_gonder
+from ilan_alaka import kayitlari_suz, meta_listelerini_suz
 from okas_defaults import DEFAULT_OKAS_VIRGUL
 
 
@@ -57,6 +58,13 @@ def main() -> int:
         veriler, _dosya, meta = ekap_botunu_calistir(
             args.okas, "Teklif Vermeye Açık", args.haric, args.limit
         )
+        veriler, ozet = kayitlari_suz(veriler)
+        if isinstance(meta, dict):
+            meta = meta_listelerini_suz(meta, veriler)
+        if ozet.elenen:
+            print(
+                f"🧹 Özet mail süzgeci: {ozet.elenen} alakasız ilan.gov.tr kaydı elendi."
+            )
     except Exception as e:
         hata = f"{type(e).__name__}: {e}\n\n{traceback.format_exc()[-2500:]}"
         print(hata, file=sys.stderr)
