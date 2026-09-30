@@ -10,7 +10,13 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
-from calendar_sync import google_calendar_button_html, google_calendar_linkleri_metin
+from ekap.report import (
+    FIRST_SEEN_DISCLAIMER,
+    THIS_WEEK_DISCLAIMER,
+    build_subject,
+    format_mail_line,
+    mail_cell,
+)
 from ilan_alaka import kayitlari_suz, meta_listelerini_suz
 
 Attachment = Tuple[str, bytes, str]  # filename, content, mime type
@@ -129,22 +135,22 @@ def _esc(text: str) -> str:
 def _tablo_satirlari(veriler: List[Dict[str, str]]) -> str:
     rows = []
     for v in veriler:
-        link = (v.get("Link") or "").strip()
+        link = mail_cell(v, "EKAP Linki")
         link_html = (
             f'<a href="{_esc(link)}" target="_blank" rel="noopener">Aç</a>'
-            if link
-            else "-"
+            if link.startswith("http")
+            else _esc(link if link != "-" else "")
+            or "-"
         )
         rows.append(
             "<tr>"
-            f"<td>{_esc(v.get('İKN', ''))}</td>"
-            f"<td>{_esc(v.get('İşin Adı', ''))}</td>"
-            f"<td>{_esc(v.get('Kurum', ''))}</td>"
-            f"<td>{_esc(v.get('İhale Tarihi', ''))}</td>"
-            f"<td>{_esc(v.get('İl', ''))}</td>"
-            f"<td>{_esc(v.get('Durum', ''))}</td>"
+            f"<td>{_esc(mail_cell(v, 'İKN'))}</td>"
+            f"<td>{_esc(mail_cell(v, 'İhale Adı'))}</td>"
+            f"<td>{_esc(mail_cell(v, 'İdare'))}</td>"
+            f"<td>{_esc(mail_cell(v, 'İl'))}</td>"
+            f"<td>{_esc(mail_cell(v, 'İhale Tarihi'))}</td>"
+            f"<td>{_esc(mail_cell(v, 'Tür'))}</td>"
             f"<td>{link_html}</td>"
-            f"<td>{google_calendar_button_html(v)}</td>"
             "</tr>"
         )
     return "".join(rows)
@@ -170,26 +176,16 @@ def _yeni_kutu(
              style="border-collapse:collapse;width:100%;font-size:13px;background:#fff">
         <thead style="background:{head};color:#fff">
           <tr>
-            <th>İKN</th><th>İşin Adı</th><th>Kurum</th><th>İhale Tarihi</th>
-            <th>İl</th><th>Durum</th><th>Link</th><th>Takvim</th>
+            <th>İKN</th><th>İhale Adı</th><th>İdare</th><th>İl</th>
+            <th>İhale Tarihi</th><th>Tür</th><th>EKAP Linki</th>
           </tr>
         </thead>
         <tbody>
-          {_tablo_satirlari(veriler) if veriler else '<tr><td colspan="8">Kayıt yok</td></tr>'}
+          {_tablo_satirlari(veriler) if veriler else '<tr><td colspan="7">Kayıt yok</td></tr>'}
         </tbody>
       </table>
     </div>
     """
-
-
-def build_subject(
-    yeni_bugun: List[Dict[str, str]],
-    yeni_dun: List[Dict[str, str]],
-) -> str:
-    """Mail başlığı: bugün / dün girilen ihale sayıları (OKAS kodu yok)."""
-    n_bugun = len(yeni_bugun)
-    n_dun = len(yeni_dun)
-    return f"Bugün {n_bugun} ihale, dün {n_dun} ihale girildi"
 
 
 KAYNAK_UYARI_BASLIK = "⚠️ Bu liste {kaynak} yedek hattından derlendi"
@@ -242,7 +238,15 @@ def ihale_sonuclarini_maile_cevir(
             {"yeni_bu_hafta": list(yeni_meta)}, veriler
         ).get("yeni_bu_hafta") or []
     elif isinstance(yeni_meta, dict):
-        yeni_meta = meta_listelerini_suz(yeni_meta, veriler)
+        if yeni_meta.get("tracking") == "first_seen":
+            union = (
+                list(yeni_meta.get("yeni_bugun") or [])
+                + list(yeni_meta.get("yeni_dun") or [])
+                + list(yeni_meta.get("yeni_bu_hafta") or [])
+            )
+            yeni_meta = meta_listelerini_suz(yeni_meta, union)
+        else:
+            yeni_meta = meta_listelerini_suz(yeni_meta, veriler)
         yeni_bugun = list(yeni_meta.get("yeni_bugun") or [])
         yeni_dun = list(yeni_meta.get("yeni_dun") or [])
         yeni_hafta = list(yeni_meta.get("yeni_bu_hafta") or [])
@@ -251,7 +255,6 @@ def ihale_sonuclarini_maile_cevir(
         yeni_meta if isinstance(yeni_meta, dict) else None
     )
 
-    n = len(veriler)
     subject = build_subject(yeni_bugun, yeni_dun)
     if uyari_baslik:
         subject += " — ilan.gov.tr yedek hattı"
@@ -262,82 +265,61 @@ def ihale_sonuclarini_maile_cevir(
     lines += [
         f"OKAS: {okas}",
         f"Konu özeti: {subject}",
+        FIRST_SEEN_DISCLAIMER,
+        THIS_WEEK_DISCLAIMER,
         (
-            "Not: 'Yeni' ifadesi ihale tarihini degil, ilanin EKAP'ta yayimlandigi gunu anlatir. "
-            "Bu yuzden ihale tarihi daha ileri bir tarih olabilir."
-        ),
-        (
-            "Takvim: HTML tablosundaki dugmeler Google Takvim sablonunu acar. "
-            "Birincisi ihaleden 7 gun once hazirlik hatirlaticisidir; ikincisi gercek "
-            "ihale gunu/saati etkinligidir (saat yoksa mesai baslangici 09:00). "
-            "ICS ekinde her iki alarm da vardir (7 gun once + 1 saat once). "
-            "Bot takvime otomatik yazmaz."
-        ),
-        (
-            f"Bugün yeni: {len(yeni_bugun)} | Önceki gün yeni: {len(yeni_dun)} | "
-            f"Bu hafta yeni: {len(yeni_hafta)} | Açık liste: {n}"
+            f"Bugün ilk tespit: {len(yeni_bugun)} | Dün ilk tespit: {len(yeni_dun)} | "
+            f"Bu hafta ilk tespit (özet): {len(yeni_hafta)}"
         ),
         "",
-        "=== BUGÜN YAYIMLANAN İLANLAR ===",
+        "=== BUGÜN İLK KEZ TESPİT EDİLEN İHALELER ===",
     ]
     if yeni_bugun:
         for v in yeni_bugun:
-            lines.append(
-                f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
-                f" | {google_calendar_linkleri_metin(v)}"
-            )
+            lines.append(f"- {format_mail_line(v)}")
     else:
         lines.append("(Yok)")
 
-    lines += ["", "=== ÖNCEKİ GÜN YAYIMLANAN İLANLAR ==="]
+    lines += ["", "=== DÜN İLK KEZ TESPİT EDİLEN İHALELER ==="]
     if yeni_dun:
         for v in yeni_dun:
-            lines.append(
-                f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
-                f" | {google_calendar_linkleri_metin(v)}"
-            )
+            lines.append(f"- {format_mail_line(v)}")
     else:
         lines.append("(Yok)")
 
-    lines += ["", "=== BU HAFTA YAYIMLANAN DIGER ILANLAR ==="]
+    lines += [
+        "",
+        "=== BU HAFTA İLK KEZ TESPİT EDİLEN İHALELER ===",
+        "(Haftalık özet: Pazartesi 00:00'dan itibaren; bugün ve dün dahildir.)",
+    ]
     if yeni_hafta:
         for v in yeni_hafta:
-            lines.append(
-                f"- {v.get('İKN')} | {v.get('İşin Adı')} | ihale: {v.get('İhale Tarihi')} | {v.get('Link')}"
-                f" | {google_calendar_linkleri_metin(v)}"
-            )
+            lines.append(f"- {format_mail_line(v)}")
     else:
         lines.append("(Yok)")
-
-    lines += ["", "=== TÜM TEKLİF VERMEYE AÇIK LİSTE ==="]
-    for v in veriler:
-        lines.append(
-            f"- {v.get('İKN')} | {v.get('İşin Adı')} | {v.get('İhale Tarihi')} | {v.get('Link')}"
-            f" | {google_calendar_linkleri_metin(v)}"
-        )
 
     body = "\n".join(lines)
 
     kutular = ""
     kutular += _yeni_kutu(
-        "Bugün yayimlanan ilanlar",
-        "Bugün EKAP'ta ilanı yayımlanan kayıtlar. Ihale tarihi daha ileri bir gun olabilir.",
+        "BUGÜN İLK KEZ TESPİT EDİLEN İHALELER",
+        "Bugün (Türkiye saati) botun ilk kez gördüğü ihaleler. Bu tarih EKAP resmi ilan tarihi değildir.",
         yeni_bugun,
         "#1F6FEB",
         "#F0F7FF",
         "#1F6FEB",
     )
     kutular += _yeni_kutu(
-        "Önceki gün yayimlanan ilanlar",
-        "Dün EKAP'ta yayımlanan kayitlar. Sabah cron gecikirse burada gorunebilir.",
+        "DÜN İLK KEZ TESPİT EDİLEN İHALELER",
+        "Dün ilk kez tespit edilen ihaleler. Sabah cron gecikirse burada görünebilir.",
         yeni_dun,
         "#B45309",
         "#FFF7ED",
         "#B45309",
     )
     kutular += _yeni_kutu(
-        "Bu hafta yayimlanan diger ilanlar",
-        "Bu haftada yayimlanmis ama bugun ve onceki gun listelerinde yer almayan kayitlar.",
+        "BU HAFTA İLK KEZ TESPİT EDİLEN İHALELER",
+        "Pazartesi 00:00'dan şu ana kadar ilk tespit edilenlerin haftalık özeti. Bugün ve dün bu özete dahildir.",
         yeni_hafta,
         "#047857",
         "#ECFDF5",
@@ -360,34 +342,15 @@ def ihale_sonuclarini_maile_cevir(
       {uyari_kutusu}
       <h2 style="margin-bottom:6px">{_esc(subject)}</h2>
       <p style="margin-top:0">
-        <b>OKAS:</b> {_esc(okas)} —
-        <b>{n}</b> teklif vermeye açık (ihale tarihi ≥ bugün, sansür uygulanmış)
+        <b>OKAS:</b> {_esc(okas)}
       </p>
       <p style="margin-top:0;color:#444;font-size:13px">
-        'Yeni' etiketi ihale tarihini degil, ilanin EKAP'ta yayimlandigi gunu anlatir.
-        Bu yuzden ihale tarihi daha ileri bir gunde olabilir.
+        {_esc(FIRST_SEEN_DISCLAIMER)}
       </p>
       <p style="margin-top:0;color:#0F766E;font-size:13px">
-        Tablodaki takvim düğmeleri Google Takvim şablonunu açar:
-        <b>📅 7 gün önce</b> hazırlık hatırlatıcısı,
-        <b>📅 İhale günü</b> gerçek başlangıç saati (saat yoksa mesai başlangıcı 09:00).
-        Ekteki .ics içinde her iki hatırlatıcı da vardır (7 gün önce + ihale saatinden 1 saat önce).
-        Bot takvime otomatik yazmaz; yalnızca ilgilendiğiniz ihaleyi siz ekleyin.
+        {_esc(THIS_WEEK_DISCLAIMER)}
       </p>
       {kutular}
-      <h3 style="margin:18px 0 8px 0">Tüm teklif vermeye açık liste</h3>
-      <table border="1" cellpadding="6" cellspacing="0"
-             style="border-collapse:collapse;font-size:13px">
-        <thead style="background:#2C3E50;color:#fff">
-          <tr>
-            <th>İKN</th><th>İşin Adı</th><th>Kurum</th><th>İhale Tarihi</th>
-            <th>İl</th><th>Durum</th><th>Link</th><th>Takvim</th>
-          </tr>
-        </thead>
-        <tbody>
-          {_tablo_satirlari(veriler) if veriler else '<tr><td colspan="8">Kayıt yok</td></tr>'}
-        </tbody>
-      </table>
     </body></html>
     """
     return subject, body, html

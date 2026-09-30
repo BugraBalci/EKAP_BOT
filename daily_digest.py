@@ -18,6 +18,7 @@ import traceback
 
 from bot_runner import ekap_botunu_calistir
 from calendar_sync import ICS_DOSYA_ADI, ics_olustur
+from ekap.report import should_send_mail
 from email_provider import load_dotenv, sonuclari_email_gonder, uyari_mail_gonder
 from ilan_alaka import kayitlari_suz, meta_listelerini_suz
 from okas_defaults import DEFAULT_OKAS_VIRGUL
@@ -60,7 +61,15 @@ def main() -> int:
         )
         veriler, ozet = kayitlari_suz(veriler)
         if isinstance(meta, dict):
-            meta = meta_listelerini_suz(meta, veriler)
+            if meta.get("tracking") == "first_seen":
+                union = (
+                    list(meta.get("yeni_bugun") or [])
+                    + list(meta.get("yeni_dun") or [])
+                    + list(meta.get("yeni_bu_hafta") or [])
+                )
+                meta = meta_listelerini_suz(meta, union)
+            else:
+                meta = meta_listelerini_suz(meta, veriler)
         if ozet.elenen:
             print(
                 f"🧹 Özet mail süzgeci: {ozet.elenen} alakasız ilan.gov.tr kaydı elendi."
@@ -83,9 +92,17 @@ def main() -> int:
         meta = {"yeni_bu_hafta": meta, "yeni_bugun": [], "yeni_dun": []}
 
     print(
-        f"Özet: açık={len(veriler)} | bugün yeni={len(meta.get('yeni_bugun') or [])} | "
-        f"dün yeni={len(meta.get('yeni_dun') or [])} | alıcı={len(alicilar)}"
+        f"Özet: tarama={len(veriler)} | bugün ilk tespit={len(meta.get('yeni_bugun') or [])} | "
+        f"dün ilk tespit={len(meta.get('yeni_dun') or [])} | "
+        f"hafta özet={len(meta.get('yeni_bu_hafta') or [])} | alıcı={len(alicilar)}"
     )
+
+    if not should_send_mail(meta if isinstance(meta, dict) else None):
+        print(
+            "İlk başarılı tarama baseline/seed olarak kaydedildi; "
+            "mevcut sonuçlar 'bugün yeni' diye mail atılmadı."
+        )
+        return 0
 
     for v in veriler:
         ad = (v.get("İşin Adı") or "").upper()
@@ -94,16 +111,17 @@ def main() -> int:
             print("UYARI beklenmeyen kayıt:", v.get("İKN"), v.get("İşin Adı"), file=sys.stderr)
 
     attachments = None
-    if veriler:
+    rapor_satirlari = list(meta.get("yeni_bu_hafta") or [])
+    if rapor_satirlari:
         try:
-            ics_bytes = ics_olustur(veriler)
+            ics_bytes = ics_olustur(rapor_satirlari)
             attachments = [(ICS_DOSYA_ADI, ics_bytes, "text/calendar")]
         except Exception as e:
             print(f"ICS dosyası oluşturulamadı: {e}", file=sys.stderr)
 
     for to in alicilar:
         r = sonuclari_email_gonder(
-            to, veriler, args.okas, yeni_meta=meta, attachments=attachments
+            to, rapor_satirlari, args.okas, yeni_meta=meta, attachments=attachments
         )
         print(f"MAIL {to}: {r.get('status') or r}")
 

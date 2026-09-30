@@ -1,6 +1,10 @@
 # Zamanlanmış sabah bülteni (her gün 09:00 Türkiye saati) + elle tetikleme.
 # Projenin zamanlanmış tek workflow'u burasıdır; ekap-daily-digest.yml elle
 # tetiklenir. İkisini birden zamanlamayın, aynı sabah iki bülten gider.
+#
+# GitHub-hosted runner vendor/ihale-mcp klonunu görmez (gitignore).
+# MCP importu olmazsa liste ilan.gov.tr yedek hattından üretilir.
+# Asıl EKAP taraması, vendor/ihale-mcp bulunan yerel Linux cron içindir.
 # Secrets veya Variables (Settings → Secrets and variables → Actions):
 #   ENTROPY_EMAIL_API_KEY  → MSA API (gönderen: info@entropywork.com)
 #   EKAP_EMAIL_RECIPIENTS veya RECEIVER_MAILS → virgülle alıcılar
@@ -8,7 +12,7 @@
 # Google Takvim API'ye otomatik etkinlik yazılmaz.
 # Kullanıcı maildeki "📅 Takvime Ekle" bağlantısıyla kendi takvimine ekler.
 
-name: EKAP Daily Selenium Digest
+name: EKAP Daily Digest
 
 on:
   schedule:
@@ -30,10 +34,7 @@ jobs:
       EKAP_EMAIL_RECIPIENTS: ${{ secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS || secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS }}
       RECEIVER_MAILS: ${{ secrets.RECEIVER_MAILS || vars.RECEIVER_MAILS || secrets.EKAP_EMAIL_RECIPIENTS || vars.EKAP_EMAIL_RECIPIENTS }}
       SAYFA_LIMITI: "2"
-      # EKAP otomasyona güvenlik doğrulama sayfası gösterdiği sürece Selenium
-      # denemesi boşuna ~2 dk harcayıp başarısız oluyor. Liste ilan.gov.tr
-      # yedek hattından derlenir. EKAP tekrar taranabilir olunca "1" yapın.
-      EKAP_SELENIUM: "0"
+      EKAP_FALLBACK: "1"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,26 +44,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Chrome ve xvfb yalnızca Selenium yolu açıkken gerekir; EKAP_SELENIUM=0
-      # iken kurulumları atlayıp her koşudan ~1 dakika tasarruf edilir.
-      - name: Install Chrome
-        if: env.EKAP_SELENIUM != '0'
-        uses: browser-actions/setup-chrome@v2
-        with:
-          chrome-version: stable
-
-      - name: Install xvfb
-        if: env.EKAP_SELENIUM != '0'
-        run: sudo apt-get update && sudo apt-get install -y xvfb
-
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
       - name: Run EKAP cron bot
-        run: |
-          set -euo pipefail
-          if [ "${EKAP_SELENIUM}" = "0" ]; then
-            python cron_bot.py
-          else
-            xvfb-run -a python cron_bot.py
-          fi
+        run: python cron_bot.py

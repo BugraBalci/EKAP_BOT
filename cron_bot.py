@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""GitHub Actions / cron: EKAP Selenium tarama + sabah bülteni.
+"""GitHub Actions / cron: ihale-mcp tarama + sabah bülteni.
 
-GUI (main.py) ile aynı yolu kullanır: bot_runner → Selenium DOM kazıma.
-ihale-mcp / API kullanılmaz.
+GUI (main.py --gui) ile aynı yolu kullanır: bot_runner → ihale-mcp.
 
 Ortam değişkenleri: ENTROPY_EMAIL_API_KEY, EKAP_EMAIL_RECIPIENTS (alias: RECEIVER_MAILS)
 Gönderen: info@entropywork.com (ENTROPY_EMAIL_FROM ile değiştirilebilir).
 İsteğe bağlı SMTP yedek: SENDER_MAIL, SENDER_PASSWORD, SMTP_HOST, SMTP_PORT.
 Google Takvim API'ye otomatik etkinlik yazılmaz; maildeki
 📅 7 gün önce / 📅 İhale günü bağlantıları kullanılır.
-OKAS_KODU (virgülle kök kodlar), HARIC_KELIME, SAYFA_LIMITI (0 = varsayılan 2 sayfa).
+OKAS_KODU (virgülle hedef kodlar), HARIC_KELIME, LOOKBACK_DAYS.
 """
 
 from __future__ import annotations
@@ -18,6 +17,11 @@ import html
 import os
 import smtplib
 import sys
+from pathlib import Path as _Path
+
+_ROOT = _Path(__file__).resolve().parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 import traceback
 from datetime import datetime
 from email import encoders
@@ -41,11 +45,12 @@ from calendar_sync import (
 # hiçbir Calendar ID'ye etkinlik yazılmaz. Takvim yalnızca maildeki
 # 📅 7 gün önce ve 📅 İhale günü şablon linkleriyle kullanıcı tarafından doldurulur.
 from email_provider import ihale_sonuclarini_maile_cevir, send_email as msa_send_email
+from ekap.report import should_send_mail
 from ilan_alaka import kayitlari_suz, meta_listelerini_suz
 
 from okas_defaults import DEFAULT_OKAS_KODLARI
 
-# Kök OKAS kodları (Selenium sitedeki OKAS seçicisini kullanır). 31711000 dahil.
+# Hedef OKAS kodları (MCP isteği bu kodlarla gider).
 TARANACAK_OKAS_KODLARI = list(DEFAULT_OKAS_KODLARI)
 if "31711000" not in TARANACAK_OKAS_KODLARI:
     TARANACAK_OKAS_KODLARI.append("31711000")
@@ -244,7 +249,7 @@ def bulten_html(
               Bot takvime otomatik yazmaz; yalnızca ilgilendiğiniz ihaleyi siz ekleyin.
             </p>
             <p style="margin:18px 0 0 0;color:#64748B;font-size:12px">
-              Bu bülten GitHub Actions üzerindeki EKAP Selenium taramasından üretilmiştir.
+              Bu bülten EKAP Playwright taramasından üretilmiştir.
             </p>
           </div>
         </div>
@@ -380,9 +385,9 @@ def mail_gonder(
 def ekap_tara(
     okas_kodlari: Sequence[str], haric: str, limit: int
 ) -> tuple[List[Dict[str, str]], List[str], Dict[str, List]]:
-    """GUI ile aynı Selenium yolunu kullanır; kök kodlar virgülle birleşim kümesi."""
+    """GUI ile aynı Playwright yolunu kullanır; kök kodlar virgülle birleşim kümesi."""
     okas = ",".join(okas_kodlari)
-    print(f"🔎 EKAP Selenium taraması | kökler={okas} | sayfa_limiti={limit}")
+    print(f"🔎 EKAP Playwright taraması | kodlar={okas} | sayfa_limiti={limit}")
     ham, _dosya, meta = ekap_botunu_calistir(
         okas, "Teklif Vermeye Açık", haric, limit
     )
@@ -404,9 +409,17 @@ def ekap_tara(
             f"🧹 Bülten süzgeci: {ozet.elenen} alakasız ilan.gov.tr kaydı elendi, "
             f"{len(temiz)} kaldı."
         )
-    meta = meta_listelerini_suz(meta or {}, temiz)
+    if isinstance(meta, dict) and meta.get("tracking") == "first_seen":
+        union = (
+            list(meta.get("yeni_bugun") or [])
+            + list(meta.get("yeni_dun") or [])
+            + list(meta.get("yeni_bu_hafta") or [])
+        )
+        meta = meta_listelerini_suz(meta, union)
+    else:
+        meta = meta_listelerini_suz(meta or {}, temiz)
     verileri_kaydet(temiz, dosya_adi=KAYIT_DOSYASI)
-    print(f"✅ Selenium birleşim: {len(ham)} ham, {len(temiz)} benzersiz kayıt")
+    print(f"✅ Playwright birleşim: {len(ham)} ham, {len(temiz)} benzersiz kayıt")
     return temiz, hatalar, meta
 
 
@@ -483,7 +496,7 @@ def ana_gorev() -> int:
             _bilgilendirme_gonder(
                 konu=f"EKAP Sabah Bülteni — hata ({tarih})",
                 baslik="EKAP taraması başarısız",
-                ozet="Sabah cron çalıştı ancak EKAP Selenium taraması tamamlanamadı.",
+                ozet="Sabah cron çalıştı ancak EKAP taraması tamamlanamadı.",
                 okas=okas_etiket,
                 veriler=[],
                 hata=hata,
@@ -500,7 +513,7 @@ def ana_gorev() -> int:
     kaynak = (meta or {}).get("kaynak") or "EKAP"
     if kaynak == "EKAP":
         ozet = (
-            f"{len(okas_kodlari)} OKAS kodu tarandı (Selenium). "
+            f"{len(okas_kodlari)} OKAS kodu tarandı (ihale-mcp). "
             f"Tabloda {len(veriler)} benzersiz ihale yer alıyor."
         )
     else:
@@ -519,30 +532,30 @@ def ana_gorev() -> int:
         ozet += f" {len(kod_hatalari)} kod atlandı."
 
     print(f"📧 Tarama bitti (kaynak: {kaynak}); bülten hazırlanıyor.")
+    if not should_send_mail(meta if isinstance(meta, dict) else None):
+        print(
+            "ℹ️ İlk başarılı tarama baseline/seed olarak kaydedildi; "
+            "mail GÖNDERİLMEDİ. Sonraki çalışmada yalnızca yeni ilk tespitler raporlanır."
+        )
+        return 0
+
     # Kaynak uyarısı (liste yedek hattan geldiyse) email_provider içinde
     # gövdeye ekleniyor; daily_digest.py da aynı yoldan geçtiği için orada da
     # görünür.
+    rapor_satirlari = list(meta.get("yeni_bu_hafta") or [])
     konu, metin, html_govde = ihale_sonuclarini_maile_cevir(
-        veriler, okas_etiket, yeni_meta=meta
+        rapor_satirlari, okas_etiket, yeni_meta=meta
     )
     if kod_hatalari and not hata_notu:
         hata_notu = "Atlanan adımlar:\n" + "\n".join(f"- {x}" for x in kod_hatalari)
-    if not veriler:
-        _bilgilendirme_gonder(
-            konu=konu,
-            baslik="Bugün listelenecek ihale yok",
-            ozet=ozet,
-            okas=okas_etiket,
-            veriler=[],
-            hata=hata_notu,
-        )
-        print("ℹ️ İhale bulunamadı; bilgilendirme maili gönderildi.")
-        return 1 if kod_hatalari and len(kod_hatalari) == len(okas_kodlari) else 0
-
-    ekler = _ics_ekleri(veriler)
+    ekler = _ics_ekleri(rapor_satirlari)
     html_govde, metin = _ics_notu_ekle(html_govde, metin, ekler)
     mail_gonder(konu, html_govde, metin, ekler=ekler)
-    print(f"✅ Bülten gönderildi ({len(veriler)} benzersiz kayıt, {len(okas_kodlari)} OKAS kodu).")
+    print(
+        f"✅ Bülten gönderildi (bugün={len(meta.get('yeni_bugun') or [])}, "
+        f"dün={len(meta.get('yeni_dun') or [])}, "
+        f"hafta={len(rapor_satirlari)}, {len(okas_kodlari)} OKAS kodu)."
+    )
     return 0
 
 

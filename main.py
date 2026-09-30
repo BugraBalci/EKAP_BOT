@@ -1,12 +1,20 @@
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import os
+import re
+import threading
+import webbrowser
+
 import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
-import threading
-import webbrowser
-import re
 
-from bot_runner import ekap_botunu_calistir
-from email_provider import sonuclari_email_gonder
+from ekap.config import EkapConfig, load_dotenv
+from ekap.logging_setup import setup_logging
+from ekap.pipeline import print_result, run_collection
 from okas_defaults import DEFAULT_OKAS_VIRGUL
 
 
@@ -107,15 +115,25 @@ class EkapBotApp:
         ).start()
 
     def _botu_arka_planda_calistir(self, okas, durum, haric, limit, email):
+        from bot_runner import ekap_botunu_calistir
+        from email_provider import sonuclari_email_gonder
+
         try:
             veriler, dosya, meta = ekap_botunu_calistir(okas, durum, haric, limit)
             email_notu = ""
             if email:
-                try:
-                    sonuclari_email_gonder(email, veriler, okas, yeni_meta=meta)
-                    email_notu = f"\n📧 Sonuçlar e-posta ile gönderildi: {email}"
-                except Exception as mail_hata:
-                    email_notu = f"\n⚠️ E-posta gönderilemedi: {mail_hata}"
+                from ekap.report import should_send_mail
+
+                if not should_send_mail(meta if isinstance(meta, dict) else None):
+                    email_notu = (
+                        "\nℹ️ İlk tarama baseline olarak kaydedildi; mail gönderilmedi."
+                    )
+                else:
+                    try:
+                        sonuclari_email_gonder(email, veriler, okas, yeni_meta=meta)
+                        email_notu = f"\n📧 Sonuçlar e-posta ile gönderildi: {email}"
+                    except Exception as mail_hata:
+                        email_notu = f"\n⚠️ E-posta gönderilemedi: {mail_hata}"
             self.root.after(0, self.islem_basarili, veriler, dosya, email_notu)
         except Exception as e:
             self.root.after(0, self.islem_hatali, str(e))
@@ -239,7 +257,66 @@ class EkapBotApp:
         tablo.bind("<Double-1>", cift_tiklandi)
 
 
-if __name__ == "__main__":
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="EKAP ihale tarama (ihale-mcp). Varsayılan: tam üretim koşusu."
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Veriyi çek, filtrele, duplicate kontrolü yap; mail/takvim gönderme",
+    )
+    parser.add_argument(
+        "--network-debug",
+        action="store_true",
+        help="MCP arama parametrelerini ve sayfa özetini logla",
+    )
+    parser.add_argument(
+        "--gui",
+        action="store_true",
+        help="Eski Tkinter arayüzünü aç",
+    )
+    parser.add_argument("--okas", default="", help="virgülle hedef OKAS kodları")
+    parser.add_argument("--haric", default="", help="virgülle dışlanacak kelimeler")
+    return parser.parse_args(argv)
+
+
+def run_gui() -> int:
     root = tk.Tk()
-    app = EkapBotApp(root)
+    EkapBotApp(root)
     root.mainloop()
+    return 0
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    load_dotenv()
+    if args.okas:
+        os.environ["OKAS_KODU"] = args.okas
+    if args.haric:
+        os.environ["HARIC_KELIME"] = args.haric
+
+    setup_logging(logging.DEBUG if args.network_debug else logging.INFO)
+
+    if args.gui:
+        return run_gui()
+
+    config = EkapConfig.from_env(
+        dry_run=bool(args.dry_run or args.network_debug),
+        network_debug=args.network_debug,
+        okas=args.okas or None,
+        haric=args.haric or None,
+    )
+
+    if args.dry_run or args.network_debug:
+        result = asyncio.run(run_collection(config))
+        print_result(result)
+        return 0
+
+    from cron_bot import ana_gorev
+
+    return ana_gorev()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

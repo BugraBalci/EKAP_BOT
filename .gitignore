@@ -1,4 +1,4 @@
-# runtime-only clones (not part of this Selenium branch)
+# yerel ihale-mcp klonu (Cursor MCP sunucusu da bunu çalıştırır)
 vendor/
 
 __pycache__/
@@ -13,6 +13,10 @@ ekap_hata_ekrani_sayfa_*.png
 debug_sayfa_*.png
 debug_sayfa_*.html
 gunluk_ekap_ihaleleri.ics
+data/ekap.db
+data/*.json
+logs/
+ekap/__pycache__/
 
 # EKAP_MAIL_GONDER=0 kuru çalıştırma önizlemesi
 bulten_onizleme.html
