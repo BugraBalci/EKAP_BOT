@@ -11,6 +11,8 @@ from okas_defaults import DEFAULT_OKAS_KODLARI, SEARCH_OKAS_KOKLERI, okas_kok_ko
 
 ROOT = Path(__file__).resolve().parent.parent
 EKAP_SEARCH_URL = "https://ekapv2.kik.gov.tr/ekap/search"
+DEFAULT_MCP_URL = "https://ihale.surucu.dev/mcp"
+DEFAULT_MCP_TIMEOUT = 180.0
 DEFAULT_LOOKBACK_DAYS = 2
 DEFAULT_PAGE_SIZE = 50
 DEFAULT_MAX_PAGES = 20
@@ -109,6 +111,8 @@ class EkapConfig:
     mail_enabled: bool = True
     dry_run: bool = False
     network_debug: bool = False
+    mcp_url: str = DEFAULT_MCP_URL
+    mcp_timeout: float = DEFAULT_MCP_TIMEOUT
 
     @classmethod
     def from_env(
@@ -122,6 +126,12 @@ class EkapConfig:
         load_dotenv()
         target = target_okas_codes(okas)
         db = (os.environ.get("EKAP_DB_PATH") or "").strip()
+        mcp_url = (os.environ.get("IHALE_MCP_URL") or DEFAULT_MCP_URL).strip() or DEFAULT_MCP_URL
+        timeout_raw = (os.environ.get("IHALE_MCP_TIMEOUT") or "").strip()
+        try:
+            mcp_timeout = float(timeout_raw) if timeout_raw else DEFAULT_MCP_TIMEOUT
+        except ValueError:
+            mcp_timeout = DEFAULT_MCP_TIMEOUT
         return EkapConfig(
             lookback_days=max(0, env_int("LOOKBACK_DAYS", DEFAULT_LOOKBACK_DAYS)),
             page_size=max(1, env_int("EKAP_PAGE_SIZE", DEFAULT_PAGE_SIZE)),
@@ -135,4 +145,6 @@ class EkapConfig:
             mail_enabled=env_flag("EKAP_MAIL_GONDER", True) and not dry_run,
             dry_run=dry_run,
             network_debug=network_debug,
+            mcp_url=mcp_url,
+            mcp_timeout=max(30.0, mcp_timeout),
         )

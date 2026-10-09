@@ -23,6 +23,9 @@ jobs:
   send-digest:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      actions: write
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,6 +37,14 @@ jobs:
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt
+
+      - name: Restore seen tenders
+        uses: actions/cache/restore@v4
+        with:
+          path: data/ekap.db
+          key: ekap-seen-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ekap-seen-
 
       - name: Send daily digest
         env:
@@ -52,3 +63,21 @@ jobs:
           else
             python3 daily_digest.py --okas "$OKAS" --haric "lisans, araba" --limit 2
           fi
+
+      - name: Checkpoint seen database
+        id: ekap-db
+        if: always()
+        run: |
+          if [ ! -f data/ekap.db ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python -c "import sqlite3; c=sqlite3.connect('data/ekap.db'); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Save seen tenders
+        if: always() && steps.ekap-db.outputs.ready == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: data/ekap.db
+          key: ekap-seen-${{ github.run_id }}-${{ github.run_attempt }}

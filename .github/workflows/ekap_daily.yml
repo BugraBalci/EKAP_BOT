@@ -2,9 +2,11 @@
 # Projenin zamanlanmış tek workflow'u burasıdır; ekap-daily-digest.yml elle
 # tetiklenir. İkisini birden zamanlamayın, aynı sabah iki bülten gider.
 #
-# GitHub-hosted runner vendor/ihale-mcp klonunu görmez (gitignore).
-# MCP importu olmazsa liste ilan.gov.tr yedek hattından üretilir.
-# Asıl EKAP taraması, vendor/ihale-mcp bulunan yerel Linux cron içindir.
+# Liste https://ihale.surucu.dev/mcp üzerinden gelir (IHALE_MCP_URL).
+# Sunucu Turnstile'ı geçemezse ve EKAP_FALLBACK=1 ise kaynak ilan.gov.tr olur.
+# Runner her seferinde silinir. data/ekap.db Actions cache'de durmazsa her
+# sabah "ilk tarama" sayılır ve bülten gönderilmez. Cache boşsa ilk çalışma
+# yine tohumdur; ertesi sabah yalnızca yeni ilanlar gider.
 # Secrets veya Variables (Settings → Secrets and variables → Actions):
 #   ENTROPY_EMAIL_API_KEY  → MSA API (gönderen: info@entropywork.com)
 #   EKAP_EMAIL_RECIPIENTS veya RECEIVER_MAILS → virgülle alıcılar
@@ -25,6 +27,9 @@ jobs:
   scrape-and-mail:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    permissions:
+      actions: write
+      contents: read
     env:
       ENTROPY_EMAIL_API_URL: https://msa.entropywork.com/api/send-email
       ENTROPY_EMAIL_API_KEY: ${{ secrets.ENTROPY_EMAIL_API_KEY }}
@@ -47,5 +52,31 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore seen tenders
+        uses: actions/cache/restore@v4
+        with:
+          path: data/ekap.db
+          key: ekap-seen-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ekap-seen-
+
       - name: Run EKAP cron bot
         run: python cron_bot.py
+
+      - name: Checkpoint seen database
+        id: ekap-db
+        if: always()
+        run: |
+          if [ ! -f data/ekap.db ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python -c "import sqlite3; c=sqlite3.connect('data/ekap.db'); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()"
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - name: Save seen tenders
+        if: always() && steps.ekap-db.outputs.ready == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: data/ekap.db
+          key: ekap-seen-${{ github.run_id }}-${{ github.run_attempt }}

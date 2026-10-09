@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""EKAP v2 API'si için oturum/çerez/başlık önkoşullarını yöneten katman.
+"""Eski EKAP oturum teşhisi. Günlük bülten bu modülü kullanmaz.
+
+Tarama `ekap/mcp_source.py` üzerinden `https://ihale.surucu.dev/mcp`
+adresindeki `search_tenders` aracına gider. Aşağıdaki AES imza başlıkları
+EKAP ön yüzünde artık yok; burası yalnızca elle karşılaştırma içindir.
 
 EKAP'ın arama API'si doğrudan çağrıldığında HTTP 428 (Precondition Required)
 döndürüyor. 428 "istek hatalı" demez; "kabul etmem için önce sağlanması

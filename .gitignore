@@ -1,4 +1,4 @@
-# yerel ihale-mcp klonu (Cursor MCP sunucusu da bunu çalıştırır)
+# eski yerel ihale-mcp klonu; tarama artık IHALE_MCP_URL kullanır
 vendor/
 
 __pycache__/

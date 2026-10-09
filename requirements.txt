@@ -3,9 +3,6 @@
 icalendar>=5.0.0
 # requests: ilan.gov.tr yedek hattı (ilan_fallback) ve sağlık kontrolü (ekap_health).
 requests>=2.31.0
-# vendor/ihale-mcp istemcisi (EKAPClient): imzalı X-Ekap-Sec başlıkları + HTTP.
-cryptography>=45.0.0
+# Uzak ihale-mcp (streamable HTTP). EKAP imzası bu projede üretilmez.
 httpx>=0.28.1
 pydantic>=2.11.7
-# İlan metnini markdown'a çevirmek için. Kurulu değilse arama yine çalışır.
-markitdown>=0.1.2

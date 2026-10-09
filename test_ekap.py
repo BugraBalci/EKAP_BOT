@@ -16,7 +16,9 @@ from ekap.mcp_source import (
     announcement_window,
     formatted_to_item,
     paginate_mcp,
+    parse_mcp_message,
     tenders_from_mcp_result,
+    tool_result_payload,
 )
 from ekap.filters import filter_by_lookback, filter_by_okas, okas_matches
 from ekap.models import (
@@ -221,6 +223,28 @@ class McpMappingTests(unittest.TestCase):
                 {"error": "API request failed with status 428", "message": "428"}
             )
         self.assertFalse(caught.exception.retryable)
+
+    def test_turnstile_failure_is_not_retried(self):
+        with self.assertRaises(EkapMcpError) as caught:
+            tenders_from_mcp_result(
+                {
+                    "error": "Request failed",
+                    "message": "EKAP Turnstile doğrulaması tamamlanamadı",
+                }
+            )
+        self.assertFalse(caught.exception.retryable)
+
+    def test_sse_tool_result_uses_structured_content(self):
+        raw = (
+            ": ping - 2026-10-07 16:07:02+00:00\n\n"
+            "event: message\n"
+            'data: {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{}"}],'
+            '"structuredContent":{"tenders":[],"total_count":0}}}\n\n'
+        )
+        payload = tool_result_payload(parse_mcp_message(raw))
+        tenders, total = tenders_from_mcp_result(payload)
+        self.assertEqual(tenders, [])
+        self.assertEqual(total, 0)
 
 
 class ParserTests(unittest.TestCase):
